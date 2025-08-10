@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  playlist-base:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: playlist-base:latest
+    container_name: playlist-base
+    profiles:
+      - build-only
+
+  playlist-app:
+    build:
+      context: .
+      dockerfile: Dockerfile.app
+    container_name: playlist-app
+    ports:
+      - "8000:8000"
+      - "5432:5432"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql://playlist_user:playlist_password@localhost:5432/playlist_db
+      - POSTGRES_DB=playlist_db
+      - POSTGRES_USER=playlist_user
+      - POSTGRES_PASSWORD=playlist_password
+    volumes:
+      # Database mount points
+      - postgres_data:/var/lib/postgresql/data
+      - ./database:/app/database
+      
+      # Logs mount points
+      - ./logs:/app/logs
+      - ./logs/postgres:/var/lib/postgresql/logs
+      
+      # Music and audio mount points
+      - ${MUSIC_DIRECTORY:-./music}:/music:ro
+      - ${AUDIO_DIRECTORY:-./audio}:/audio:ro
+      - ${EXTRA_MUSIC_DIRS:-./extra_music}:/extra_music:ro
+      
+      # Application data mount points
+      - ./data:/app/data
+      - ./cache:/app/cache
+      
+      # Configuration mount points
+      - ./config:/app/config
+      
+      # Development mount points (optional)
+      # - ./src:/app/src:ro
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
