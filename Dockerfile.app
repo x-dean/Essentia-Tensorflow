@@ -30,7 +30,6 @@ RUN mkdir -p /music /audio /data /logs
 
 # Set environment variables
 ENV PYTHONPATH=/app/src
-ENV DATABASE_URL=postgresql://playlist_user:playlist_password@localhost:5432/playlist_db
 ENV SEARCH_DIRECTORIES=/music,/audio
 ENV LOG_LEVEL=INFO
 

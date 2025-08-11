@@ -26,9 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libavutil-dev \
     libswresample-dev \
     libswscale-dev \
-    # Database and system libraries
-    postgresql \
-    postgresql-contrib \
+    # System libraries
     libpq-dev \
     libssl-dev \
     libffi-dev \
@@ -67,6 +65,7 @@ RUN pip install --no-cache-dir \
     librosa \
     soundfile \
     pydub \
+    mutagen \
     # Data processing and visualization
     pandas \
     matplotlib \

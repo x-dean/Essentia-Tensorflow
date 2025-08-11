@@ -1,6 +1,23 @@
-version: '3.8'
-
 services:
+  postgres:
+    image: postgres:15
+    container_name: playlist-postgres
+    environment:
+      - POSTGRES_DB=playlist_db
+      - POSTGRES_USER=playlist_user
+      - POSTGRES_PASSWORD=playlist_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./logs/postgres:/var/lib/postgresql/logs
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U playlist_user -d playlist_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   playlist-app:
     build:
       context: .
@@ -8,25 +25,16 @@ services:
     container_name: playlist-app
     ports:
       - "8000:8000"
-      - "5432:5432"
     env_file:
       - .env
     environment:
-      - DATABASE_URL=postgresql://playlist_user:playlist_password@localhost:5432/playlist_db
-      - POSTGRES_DB=playlist_db
-      - POSTGRES_USER=playlist_user
-      - POSTGRES_PASSWORD=playlist_password
+      - DATABASE_URL=postgresql://playlist_user:playlist_password@postgres:5432/playlist_db
     volumes:
-      # Database mount points
-      - postgres_data:/var/lib/postgresql/data
-      - ./database:/app/database
-      
       # Logs mount points
       - ./logs:/app/logs
-      - ./logs/postgres:/var/lib/postgresql/logs
       
       # Music and audio mount points
-      - ${MUSIC_DIRECTORY:-./music}:/music:ro
+      - ${MUSIC_DIRECTORY:-C:/Users/Dean/Documents/test_music}:/music:ro
       - ${AUDIO_DIRECTORY:-./audio}:/audio:ro
       - ${EXTRA_MUSIC_DIRS:-./extra_music}:/extra_music:ro
       
@@ -39,6 +47,9 @@ services:
       
       # Development mount points (optional)
       # - ./src:/app/src:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

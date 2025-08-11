@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyc
 
 # C extensions
 *.so
@@ -129,11 +130,11 @@ dmypy.json
 .pyre/
 
 # Project specific
+# SQLite database files (legacy)
 *.db
 *.sqlite
 *.sqlite3
-playlist_app.db
-discovery_cache.db
+
 
 # Logs
 *.log

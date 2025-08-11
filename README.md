@@ -98,6 +98,32 @@ async def analyze_audio(file: UploadFile = File(...)):
     # Convert to mono if stereo
     if len(audio.shape) > 1:
         audio = np.mean(audio, axis=1)
+```
+
+### Genre Enrichment with Multiple APIs
+The application includes a sophisticated genre enrichment system that uses multiple external APIs:
+
+- **MusicBrainz** - Free, no API key required
+- **Last.fm** - Requires API key (free tier available)
+- **Discogs** - Requires API key (free tier available)
+
+```python
+# Configure API keys in config/app_settings.json
+{
+  "external_apis": {
+    "lastfm": {
+      "enabled": true,
+      "api_key": "your_lastfm_api_key"
+    },
+    "discogs": {
+      "enabled": true,
+      "api_key": "your_discogs_api_key"
+    }
+  }
+}
+```
+
+The system automatically tries each service in order until it finds a genre, providing comprehensive coverage for different music styles and regions.
     
     # Extract features
     mfcc = es.MFCC()

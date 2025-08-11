@@ -30,5 +30,10 @@
     "include_filename": true,
     "include_filesize": true,
     "include_path": false
+  },
+  "metadata_mapping": {
+    "custom_title_field": "title",
+    "custom_artist_field": "artist",
+    "custom_album_field": "album"
   }
 }

@@ -73,3 +73,4 @@ The base image includes verification steps to ensure:
 - Base image is optimized with single pip install layer
 - PostgreSQL setup is handled in application image
 - TensorFlow integration is provided by `essentia-tensorflow` package
+

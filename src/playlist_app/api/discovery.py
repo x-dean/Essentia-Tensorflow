@@ -21,19 +21,20 @@ def get_discovery_service(db: Session = Depends(get_db)) -> DiscoveryService:
 
 @router.post("/scan")
 async def scan_files(discovery_service: DiscoveryService = Depends(get_discovery_service)):
-    """Scan for new files and update database"""
+    """Scan for new files, update database, and extract metadata automatically"""
     try:
         results = discovery_service.discover_files()
         return {
             "status": "success",
-            "message": "File discovery completed",
+            "message": "File discovery and metadata extraction completed",
             "results": {
                 "added_count": len(results["added"]),
                 "removed_count": len(results["removed"]),
                 "unchanged_count": len(results["unchanged"]),
                 "added_files": results["added"],
                 "removed_files": results["removed"]
-            }
+            },
+            "note": "Metadata is automatically extracted for newly discovered files"
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Discovery failed: {str(e)}")
@@ -119,6 +120,26 @@ async def initialize_database():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database initialization failed: {str(e)}")
+
+@router.post("/re-discover")
+async def re_discover_all_files(discovery_service: DiscoveryService = Depends(get_discovery_service)):
+    """Re-discover all files (useful for initial setup or after file changes)"""
+    try:
+        results = discovery_service.re_discover_files()
+        return {
+            "status": "success",
+            "message": "Re-discovery completed",
+            "results": {
+                "added_count": len(results["added"]),
+                "removed_count": len(results["removed"]),
+                "unchanged_count": len(results["unchanged"]),
+                "added_files": results["added"],
+                "removed_files": results["removed"]
+            },
+            "note": "All files were re-discovered and metadata was extracted for new files"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Re-discovery failed: {str(e)}")
 
 @router.get("/config")
 async def get_discovery_config(discovery_service: DiscoveryService = Depends(get_discovery_service)):

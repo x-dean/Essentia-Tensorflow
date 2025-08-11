@@ -350,3 +350,4 @@ Use the nginx service in production configuration for load balancing:
 ```bash
 docker-compose -f docker-compose.prod.yml --profile nginx up -d
 ```
+

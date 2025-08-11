@@ -68,7 +68,7 @@ class ConfigLoader:
         if not config:
             config = {
                 "connection": {
-                    "url": os.getenv("DATABASE_URL", "sqlite:///./playlist_app.db"),
+                    "url": os.getenv("DATABASE_URL", "postgresql://playlist_user:playlist_password@localhost:5432/playlist_db"),
                     "pool_size": 10,
                     "max_overflow": 20,
                     "pool_timeout": 30,

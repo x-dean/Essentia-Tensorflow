@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from ..models.database import File, DiscoveryCache, get_db
 from ..core.config import DiscoveryConfig
 from ..core.logging import get_logger
+from .metadata import audio_metadata_analyzer
 
 logger = get_logger(__name__)
 
@@ -173,7 +174,7 @@ class DiscoveryService:
         return results
     
     def add_file_to_db(self, file_info: Dict):
-        """Add new file to database"""
+        """Add new file to database and extract metadata"""
         try:
             # Check if file with same hash already exists
             existing_file = self.db.query(File).filter(
@@ -199,6 +200,17 @@ class DiscoveryService:
             self.db.add(new_file)
             self.db.commit()
             logger.info(f"Added file to database: {file_info['file_name']}")
+            
+            # Extract metadata immediately after adding file
+            try:
+                logger.info(f"Extracting metadata for: {file_info['file_name']}")
+                metadata = audio_metadata_analyzer.analyze_file(file_info["file_path"], self.db)
+                if metadata:
+                    logger.info(f"Successfully extracted metadata for: {file_info['file_name']}")
+                else:
+                    logger.warning(f"No metadata extracted for: {file_info['file_name']}")
+            except Exception as metadata_error:
+                logger.error(f"Error extracting metadata for {file_info['file_name']}: {metadata_error}")
             
         except Exception as e:
             logger.error(f"Error adding file to database: {e}")
@@ -261,3 +273,31 @@ class DiscoveryService:
                 "is_analyzed": file.is_analyzed
             }
         return None
+    
+    def re_discover_files(self) -> Dict[str, List[str]]:
+        """Re-discover all files (useful for initial setup or after file changes)"""
+        try:
+            logger.info("Starting re-discovery of all files...")
+            
+            # Clear all existing files and metadata
+            from ..models.database import AudioMetadata
+            
+            # Delete all metadata first (due to foreign key constraint)
+            self.db.query(AudioMetadata).delete()
+            
+            # Delete all files
+            self.db.query(File).delete()
+            
+            self.db.commit()
+            logger.info("Cleared all existing files and metadata")
+            
+            # Run normal discovery (this will add all files as new)
+            results = self.discover_files()
+            
+            logger.info(f"Re-discovery complete - Added: {len(results['added'])}, Removed: {len(results['removed'])}, Unchanged: {len(results['unchanged'])}")
+            return results
+            
+        except Exception as e:
+            logger.error(f"Error in re-discovery: {e}")
+            self.db.rollback()
+            return {"added": [], "removed": [], "unchanged": []}

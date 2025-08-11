@@ -20,6 +20,7 @@ from src.playlist_app.models.database import create_tables, SessionLocal
 from src.playlist_app.services.discovery import DiscoveryService
 from src.playlist_app.api.discovery import router as discovery_router
 from src.playlist_app.api.config import router as config_router
+from src.playlist_app.api.metadata import router as metadata_router
 from src.playlist_app.core.config import DiscoveryConfig
 from src.playlist_app.core.logging import setup_logging, get_logger, log_performance
 
@@ -42,64 +43,28 @@ discovery_interval: int = int(os.getenv("DISCOVERY_INTERVAL", "3600"))  # Defaul
 background_discovery_enabled: bool = os.getenv("ENABLE_BACKGROUND_DISCOVERY", "false").lower() == "true"
 
 def initialize_database():
-    """Initialize PostgreSQL database and create tables"""
-    import subprocess
+    """Initialize database tables"""
     import time
     
-    logger.info("Initializing PostgreSQL database...")
+    logger.info("Initializing database tables...")
     
-    # Check if PostgreSQL data directory exists and initialize if needed
-    if not os.path.exists("/var/lib/postgresql/data/PG_VERSION"):
-        logger.info("Initializing PostgreSQL data directory...")
-        subprocess.run([
-            "su", "-", "postgres", "-c", 
-            "/usr/lib/postgresql/15/bin/initdb -D /var/lib/postgresql/data --locale=C"
-        ], check=True)
-    
-    # Start PostgreSQL server
-    logger.info("Starting PostgreSQL server...")
-    subprocess.run([
-        "su", "-", "postgres", "-c", 
-        "/usr/lib/postgresql/15/bin/pg_ctl -D /var/lib/postgresql/data -l /var/lib/postgresql/data/postgres.log start"
-    ], check=True)
-    
-    # Wait for PostgreSQL to be ready
+    # Wait for PostgreSQL to be ready (it's running in a separate container)
     logger.info("Waiting for PostgreSQL to be ready...")
     max_retries = 30
     for i in range(max_retries):
         try:
-            result = subprocess.run([
-                "su", "-", "postgres", "-c", 
-                "/usr/lib/postgresql/15/bin/pg_isready -h localhost -p 5432"
-            ], capture_output=True, text=True, check=True)
-            if "accepting connections" in result.stdout:
-                logger.info("PostgreSQL is ready!")
-                break
-        except subprocess.CalledProcessError:
-            pass
-        
-        if i == max_retries - 1:
-            raise Exception("PostgreSQL failed to start within timeout")
-        
-        time.sleep(1)
-    
-    # Create database and user if they don't exist
-    logger.info("Setting up database and user...")
-    try:
-        subprocess.run([
-            "su", "-", "postgres", "-c", 
-            "/usr/lib/postgresql/15/bin/psql -h localhost -c \"CREATE USER playlist_user WITH PASSWORD 'playlist_password';\""
-        ], check=False)  # Ignore error if user already exists
-    except:
-        pass
-    
-    try:
-        subprocess.run([
-            "su", "-", "postgres", "-c", 
-            "/usr/lib/postgresql/15/bin/psql -h localhost -c \"CREATE DATABASE playlist_db OWNER playlist_user;\""
-        ], check=False)  # Ignore error if database already exists
-    except:
-        pass
+            # Test database connection
+            db = SessionLocal()
+            from sqlalchemy import text
+            db.execute(text("SELECT 1"))
+            db.close()
+            logger.info("PostgreSQL is ready!")
+            break
+        except Exception as e:
+            if i == max_retries - 1:
+                raise Exception(f"PostgreSQL failed to connect within timeout: {e}")
+            logger.info(f"Waiting for PostgreSQL... (attempt {i+1}/{max_retries})")
+            time.sleep(2)
     
     # Create SQLAlchemy tables
     logger.info("Creating database tables...")
@@ -151,9 +116,8 @@ async def background_discovery_worker():
                 discovery_service = DiscoveryService(db)
                 
                 # Run discovery with performance logging
-                with log_performance(logger, "background_discovery"):
-                    logger.info("Running background discovery...")
-                    results = discovery_service.discover_files()
+                logger.info("Running background discovery...")
+                results = discovery_service.discover_files()
                 
                 logger.info(f"Background discovery complete - Added: {len(results['added'])}, Removed: {len(results['removed'])}, Unchanged: {len(results['unchanged'])}")
                 
@@ -179,8 +143,7 @@ def run_discovery_sync():
         db = SessionLocal()
         discovery_service = DiscoveryService(db)
         
-        with log_performance(logger, "manual_discovery"):
-            results = discovery_service.discover_files()
+        results = discovery_service.discover_files()
         
         logger.info(f"Manual discovery completed - Added: {len(results['added'])}, Removed: {len(results['removed'])}, Unchanged: {len(results['unchanged'])}")
         
@@ -204,6 +167,7 @@ app = FastAPI(
 # Include routers
 app.include_router(discovery_router)
 app.include_router(config_router)
+app.include_router(metadata_router)
 
 @app.get("/")
 async def root():

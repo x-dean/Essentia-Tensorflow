@@ -5,7 +5,7 @@ class DiscoveryConfig:
     """Configuration for discovery system"""
     
     # Database configuration
-    DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./playlist_app.db")
+    DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://playlist_user:playlist_password@localhost:5432/playlist_db")
     
     # Search directories (comma-separated)
     SEARCH_DIRECTORIES = os.getenv("SEARCH_DIRECTORIES", "/music,/audio").split(",")
