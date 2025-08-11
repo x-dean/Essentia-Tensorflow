@@ -1,15 +1,6 @@
 version: '3.8'
 
 services:
-  playlist-base:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: playlist-base:latest
-    container_name: playlist-base
-    profiles:
-      - build-only
-
   playlist-app:
     build:
       context: .

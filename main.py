@@ -41,6 +41,71 @@ background_discovery_task: Optional[asyncio.Task] = None
 discovery_interval: int = int(os.getenv("DISCOVERY_INTERVAL", "3600"))  # Default: 1 hour
 background_discovery_enabled: bool = os.getenv("ENABLE_BACKGROUND_DISCOVERY", "false").lower() == "true"
 
+def initialize_database():
+    """Initialize PostgreSQL database and create tables"""
+    import subprocess
+    import time
+    
+    logger.info("Initializing PostgreSQL database...")
+    
+    # Check if PostgreSQL data directory exists and initialize if needed
+    if not os.path.exists("/var/lib/postgresql/data/PG_VERSION"):
+        logger.info("Initializing PostgreSQL data directory...")
+        subprocess.run([
+            "su", "-", "postgres", "-c", 
+            "/usr/lib/postgresql/15/bin/initdb -D /var/lib/postgresql/data --locale=C"
+        ], check=True)
+    
+    # Start PostgreSQL server
+    logger.info("Starting PostgreSQL server...")
+    subprocess.run([
+        "su", "-", "postgres", "-c", 
+        "/usr/lib/postgresql/15/bin/pg_ctl -D /var/lib/postgresql/data -l /var/lib/postgresql/data/postgres.log start"
+    ], check=True)
+    
+    # Wait for PostgreSQL to be ready
+    logger.info("Waiting for PostgreSQL to be ready...")
+    max_retries = 30
+    for i in range(max_retries):
+        try:
+            result = subprocess.run([
+                "su", "-", "postgres", "-c", 
+                "/usr/lib/postgresql/15/bin/pg_isready -h localhost -p 5432"
+            ], capture_output=True, text=True, check=True)
+            if "accepting connections" in result.stdout:
+                logger.info("PostgreSQL is ready!")
+                break
+        except subprocess.CalledProcessError:
+            pass
+        
+        if i == max_retries - 1:
+            raise Exception("PostgreSQL failed to start within timeout")
+        
+        time.sleep(1)
+    
+    # Create database and user if they don't exist
+    logger.info("Setting up database and user...")
+    try:
+        subprocess.run([
+            "su", "-", "postgres", "-c", 
+            "/usr/lib/postgresql/15/bin/psql -h localhost -c \"CREATE USER playlist_user WITH PASSWORD 'playlist_password';\""
+        ], check=False)  # Ignore error if user already exists
+    except:
+        pass
+    
+    try:
+        subprocess.run([
+            "su", "-", "postgres", "-c", 
+            "/usr/lib/postgresql/15/bin/psql -h localhost -c \"CREATE DATABASE playlist_db OWNER playlist_user;\""
+        ], check=False)  # Ignore error if database already exists
+    except:
+        pass
+    
+    # Create SQLAlchemy tables
+    logger.info("Creating database tables...")
+    create_tables()
+    logger.info("Database initialization completed successfully")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager"""
@@ -49,8 +114,7 @@ async def lifespan(app: FastAPI):
     
     # Initialize database
     try:
-        create_tables()
-        logger.info("Database initialized successfully")
+        initialize_database()
     except Exception as e:
         logger.error(f"Failed to initialize database: {e}")
         raise

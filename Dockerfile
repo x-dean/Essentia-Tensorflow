@@ -50,104 +50,47 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libffi8 \
  && rm -rf /var/lib/apt/lists/*
 
-# TensorFlow C API (CPU)
-ARG TF_VERSION=2.11.0
-RUN wget -qO /tmp/libtensorflow.tar.gz \
-      https://storage.googleapis.com/tensorflow/libtensorflow/libtensorflow-cpu-linux-x86_64-${TF_VERSION}.tar.gz \
-  && tar -C /usr/local -xzf /tmp/libtensorflow.tar.gz \
-  && ldconfig \
-  && rm -f /tmp/libtensorflow.tar.gz
-
-# Install core Python dependencies (needed for Essentia build)
+# Install Python dependencies
 RUN pip install --no-cache-dir \
-    numpy six pyyaml \
-    tensorflow-cpu==2.11.0
-
-# Build Essentia with TensorFlow support
-WORKDIR /opt
-ARG ESSENTIA_REF=
-RUN git clone --depth 1 https://github.com/MTG/essentia.git
-WORKDIR /opt/essentia
-RUN if [ -n "$ESSENTIA_REF" ]; then \
-      git fetch --depth 1 origin "$ESSENTIA_REF" && git checkout "$ESSENTIA_REF"; \
-    fi
-
-# Setup TensorFlow for Essentia (using Python mode)
-RUN src/3rdparty/tensorflow/setup_from_python.sh
-
-# Configure, build, install — lightweight with TensorFlow support
-RUN python3 waf configure \
-      --mode=release \
-      --with-python \
-      --with-tensorflow \
-      --lightweight=libsamplerate,taglib,yaml,fftw,libchromaprint \
-      --fft=FFTW \
-  && python3 waf -v \
-  && python3 waf install \
-  # Verify installation
-  && ls -la /usr/local/lib/python3.11/site-packages/ \
-  && find /usr/local/lib/python3.11/site-packages -name "essentia*.so" \
-  && find /usr/local/lib -name "libessentia*" \
-  && find /usr/local/bin -name "*essentia*"
-
-RUN ldconfig
-
-# Install remaining Python dependencies for playlist app
-RUN pip install --no-cache-dir \
-    # Core audio processing
+    # Core Essentia and TensorFlow
+    essentia-tensorflow \
+    # Web framework and API
+    fastapi==0.104.1 \
+    uvicorn==0.24.0 \
+    gunicorn \
+    # Database
+    sqlalchemy==2.0.23 \
+    psycopg2-binary==2.9.9 \
+    redis \
+    celery \
+    # Audio processing
     librosa \
     soundfile \
     pydub \
-    scipy \
     # Data processing and visualization
     pandas \
     matplotlib \
     seaborn \
     plotly \
-    # Web framework and API
-    flask \
-    fastapi \
-    uvicorn[standard] \
-    gunicorn \
-    # Database and caching
-    sqlalchemy \
-    psycopg2-binary \
-    redis \
-    celery \
     # HTTP and networking
     requests \
     aiohttp \
     httpx \
     # File handling and utilities
-    python-multipart \
     python-jose[cryptography] \
     passlib[bcrypt] \
+    pydantic==2.5.0 \
+    python-dotenv==1.0.0 \
+    python-multipart==0.0.6 \
     # Development and testing
     pytest \
     pytest-asyncio \
     black \
     flake8 \
     # Additional useful libraries
-    python-dotenv \
-    pydantic \
     alembic \
-    # Audio fingerprinting and similarity
     dejavu \
-    # Machine learning utilities
     scikit-learn \
     joblib
 
-# Setup PostgreSQL
-RUN mkdir -p /var/lib/postgresql/data && \
-    chown -R postgres:postgres /var/lib/postgresql/data && \
-    su - postgres -c '/usr/lib/postgresql/15/bin/initdb -D /var/lib/postgresql/data --locale=C'
-
-# Copy startup scripts
-COPY scripts/startup.sh /usr/local/bin/startup.sh
-COPY scripts/startup-postgre.sh /usr/local/bin/startup-postgre.sh
-RUN chmod +x /usr/local/bin/startup.sh /usr/local/bin/startup-postgre.sh
-
 WORKDIR /workspace
-
-# Set default command to run startup script with main app
-CMD ["/usr/local/bin/startup.sh", "python", "main.py"]
