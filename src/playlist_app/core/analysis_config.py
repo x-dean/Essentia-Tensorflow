@@ -128,7 +128,22 @@ class AnalysisConfigLoader:
     """Configuration loader for analysis settings"""
     
     def __init__(self, config_path: Optional[str] = None):
-        self.config_path = config_path or "/app/config/analysis_config.json"
+        # Use relative path from project root, fallback to absolute path
+        if config_path is None:
+            # Try multiple possible config locations
+            possible_paths = [
+                "config/analysis_config.json",
+                "/app/config/analysis_config.json",
+                "src/playlist_app/config/analysis_config.json"
+            ]
+            for path in possible_paths:
+                if os.path.exists(path):
+                    config_path = path
+                    break
+            else:
+                config_path = "config/analysis_config.json"  # Default fallback
+        
+        self.config_path = config_path
         self._config: Optional[AnalysisConfig] = None
         self._load_config()
     

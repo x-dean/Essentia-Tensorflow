@@ -17,6 +17,8 @@ COPY src/ ./src/
 COPY scripts/ ./scripts/
 COPY tests/ ./tests/
 
+# Models directory will be mounted at runtime if needed
+
 
 
 # Copy documentation

@@ -1,12 +1,13 @@
 import logging
 import json
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from sqlalchemy.orm import Session
 from datetime import datetime
 import time
 
-from ..models.database import File, AudioAnalysis
-from .essentia_analyzer import essentia_analyzer, EssentiaConfig
+from ..models.database import File, AudioAnalysis, AudioMetadata
+from .essentia_analyzer import essentia_analyzer, EssentiaConfig, safe_json_serialize
+from .faiss_service import faiss_service
 
 logger = logging.getLogger(__name__)
 
@@ -71,8 +72,18 @@ class AudioAnalysisService:
             file_record.is_analyzed = True
             db.commit()
             
+            # Add to FAISS index for similarity search
+            try:
+                faiss_result = faiss_service.add_track_to_index(db, file_path, include_tensorflow)
+                if faiss_result.get("success"):
+                    logger.info(f"Track added to FAISS index: {file_path}")
+                else:
+                    logger.warning(f"Failed to add track to FAISS index: {faiss_result.get('error')}")
+            except Exception as e:
+                logger.warning(f"FAISS indexing failed for {file_path}: {e}")
+            
             logger.info(f"Analysis completed and stored for {file_path}")
-            return analysis_results
+            return safe_json_serialize(analysis_results)
             
         except Exception as e:
             logger.error(f"Analysis failed for {file_path}: {e}")
@@ -106,7 +117,7 @@ class AudioAnalysisService:
                 results['analysis_results'].append({
                     'file_path': file_path,
                     'status': 'success',
-                    'result': analysis_result
+                    'result': safe_json_serialize(analysis_result)
                 })
                 results['successful'] += 1
                 
@@ -245,6 +256,46 @@ class AudioAnalysisService:
             logger.error(f"Failed to get analysis statistics: {e}")
             return {}
     
+    def build_faiss_index(self, db: Session, include_tensorflow: bool = True, force_rebuild: bool = False) -> Dict[str, Any]:
+        """
+        Build FAISS index from analyzed tracks in database.
+        
+        Args:
+            db: Database session
+            include_tensorflow: Whether to include MusiCNN features
+            force_rebuild: Whether to force rebuild existing index
+            
+        Returns:
+            Build results
+        """
+        return faiss_service.build_index_from_database(db, include_tensorflow, force_rebuild)
+    
+    def find_similar_tracks(self, db: Session, query_path: str, top_n: int = 5) -> List[Tuple[str, float]]:
+        """
+        Find similar tracks using FAISS index.
+        
+        Args:
+            db: Database session
+            query_path: Path to query audio file
+            top_n: Number of similar tracks to return
+            
+        Returns:
+            List of (track_path, similarity_score) tuples
+        """
+        return faiss_service.find_similar_tracks(db, query_path, top_n)
+    
+    def get_faiss_statistics(self, db: Session) -> Dict[str, Any]:
+        """
+        Get FAISS index statistics.
+        
+        Args:
+            db: Database session
+            
+        Returns:
+            FAISS index statistics
+        """
+        return faiss_service.get_index_statistics(db)
+    
     def delete_analysis(self, db: Session, file_path: str) -> bool:
         """
         Delete analysis results for a file.
@@ -297,6 +348,10 @@ class AudioAnalysisService:
             rhythm_features = analysis_results.get('rhythm_features', {})
             harmonic_features = analysis_results.get('harmonic_features', {})
             
+            # Debug logging
+            logger.info(f"Storing analysis - Tempo: {rhythm_features.get('tempo')}, Tempo confidence: {rhythm_features.get('tempo_confidence')}")
+            logger.info(f"Will set rhythm_bpm to: {rhythm_features.get('tempo')}, rhythm_confidence to: {rhythm_features.get('tempo_confidence', 0.0)}")
+            
             # Create analysis record
             analysis_record = AudioAnalysis(
                 file_id=file_id,
@@ -309,51 +364,69 @@ class AudioAnalysisService:
                 rms=basic_features.get('rms'),
                 energy=basic_features.get('energy'),
                 loudness=basic_features.get('loudness'),
-                spectral_centroid_mean=basic_features.get('spectral_centroid_mean'),
-                spectral_centroid_std=basic_features.get('spectral_centroid_std'),
-                spectral_rolloff_mean=basic_features.get('spectral_rolloff_mean'),
-                spectral_rolloff_std=basic_features.get('spectral_rolloff_std'),
-                spectral_contrast_mean=basic_features.get('spectral_contrast_mean'),
-                spectral_contrast_std=basic_features.get('spectral_contrast_std'),
-                spectral_complexity_mean=basic_features.get('spectral_complexity_mean'),
-                spectral_complexity_std=basic_features.get('spectral_complexity_std'),
-                
-                # MFCC features
-                mfcc_mean=json.dumps(basic_features.get('mfcc_mean', [])),
-                mfcc_bands_mean=json.dumps(basic_features.get('mfcc_bands_mean', [])),
                 
                 # Rhythm features
-                tempo=rhythm_features.get('estimated_bpm') or rhythm_features.get('tempo'),
+                tempo=rhythm_features.get('tempo'),
                 tempo_confidence=rhythm_features.get('tempo_confidence', 0.0),
-                rhythm_bpm=rhythm_features.get('estimated_bpm') or rhythm_features.get('rhythm_bpm'),
-                rhythm_confidence=rhythm_features.get('rhythm_confidence', 0.0),
-                beat_confidence=rhythm_features.get('beat_confidence', 0.0),
-                beats=json.dumps(rhythm_features.get('beats', [])),
-                rhythm_ticks=json.dumps(rhythm_features.get('rhythm_ticks', [])),
-                rhythm_estimates=json.dumps(rhythm_features.get('rhythm_estimates', [])),
-                onset_detections=json.dumps(rhythm_features.get('onset_detections', [])),
+                tempo_methods_used=rhythm_features.get('tempo_methods_used', 0),
                 
                 # Harmonic features
                 key=harmonic_features.get('key'),
                 scale=harmonic_features.get('scale'),
                 key_strength=harmonic_features.get('key_strength'),
-                chords=json.dumps(harmonic_features.get('chords', [])),
-                chord_strengths=json.dumps(harmonic_features.get('chord_strengths', [])),
-                pitch_yin=json.dumps(harmonic_features.get('pitch_yin', [])),
-                pitch_yin_confidence=json.dumps(harmonic_features.get('pitch_yin_confidence', [])),
-                pitch_melodia=json.dumps(harmonic_features.get('pitch_melodia', [])),
-                pitch_melodia_confidence=json.dumps(harmonic_features.get('pitch_melodia_confidence', [])),
-                chromagram=json.dumps(harmonic_features.get('chromagram', [])),
+                dominant_chroma=harmonic_features.get('dominant_chroma'),
+                dominant_chroma_strength=harmonic_features.get('dominant_chroma_strength'),
                 
                 # TensorFlow features
-                tensorflow_features=json.dumps(analysis_results.get('tensorflow_features', {})),
+                tensorflow_features=json.dumps(safe_json_serialize(analysis_results.get('tensorflow_features', {}))),
                 
                 # Complete analysis
-                complete_analysis=json.dumps(analysis_results)
+                complete_analysis=json.dumps(safe_json_serialize(analysis_results))
             )
             
             db.add(analysis_record)
+            
+            # Debug logging after creating record
+            logger.info(f"Created analysis record - Tempo: {analysis_record.tempo}, Tempo confidence: {analysis_record.tempo_confidence}, Tempo methods: {analysis_record.tempo_methods_used}")
+            
+            # Update metadata with analysis results
+            metadata_record = db.query(AudioMetadata).filter(AudioMetadata.file_id == file_id).first()
+            if metadata_record:
+                # Extract values from the correct locations in the analysis results
+                complete_analysis = analysis_results.get('complete_analysis', {})
+                rhythm_features_complete = complete_analysis.get('rhythm_features', {})
+                harmonic_features_complete = complete_analysis.get('harmonic_features', {})
+                
+                # Update BPM from rhythm analysis
+                bpm_value = None
+                if rhythm_features.get('tempo') and rhythm_features['tempo'] != -999.0:
+                    bpm_value = float(rhythm_features['tempo'])
+                elif rhythm_features_complete.get('tempo') and rhythm_features_complete['tempo'] != -999.0:
+                    bpm_value = float(rhythm_features_complete['tempo'])
+                
+                if bpm_value and bpm_value > 0:
+                    metadata_record.bpm = bpm_value
+                    logger.info(f"Updated BPM to {bpm_value} for file {file_id}")
+                
+                # Update key from harmonic analysis (try multiple sources)
+                key_value = None
+                if harmonic_features_complete.get('key') and harmonic_features_complete['key'] != 'unknown':
+                    key_value = harmonic_features_complete['key']
+                elif harmonic_features.get('key') and harmonic_features['key'] != 'unknown':
+                    key_value = harmonic_features['key']
+                
+                if key_value:
+                    metadata_record.key = key_value
+                    logger.info(f"Updated key to {key_value} for file {file_id}")
+                
+                # Update duration if not already set
+                if not metadata_record.duration and analysis_results.get('duration'):
+                    metadata_record.duration = float(analysis_results['duration'])
+            
             db.commit()
+            
+            # Debug logging after commit
+            logger.info(f"After commit - Tempo: {analysis_record.tempo}, Tempo confidence: {analysis_record.tempo_confidence}, Tempo methods: {analysis_record.tempo_methods_used}")
             
             return analysis_record
             

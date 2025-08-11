@@ -22,6 +22,8 @@ from src.playlist_app.api.discovery import router as discovery_router
 from src.playlist_app.api.config import router as config_router
 from src.playlist_app.api.metadata import router as metadata_router
 from src.playlist_app.api.analyzer import router as analyzer_router
+from src.playlist_app.api.tracks import router as tracks_router
+from src.playlist_app.api.faiss import router as faiss_router
 from src.playlist_app.core.config import DiscoveryConfig
 from src.playlist_app.core.logging import setup_logging, get_logger, log_performance
 
@@ -198,6 +200,8 @@ app.include_router(discovery_router)
 app.include_router(config_router)
 app.include_router(metadata_router)
 app.include_router(analyzer_router)
+app.include_router(tracks_router)
+app.include_router(faiss_router)
 
 @app.get("/")
 async def root():
@@ -311,6 +315,39 @@ async def toggle_background_discovery():
         return JSONResponse(
             status_code=500,
             content={"error": f"Failed to toggle background discovery: {str(e)}"}
+        )
+
+@app.post("/database/reset")
+async def reset_database(confirm: bool = False):
+    """Reset and recreate the database"""
+    if not confirm:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "Database reset requires confirmation",
+                "message": "Set confirm=true to proceed with database reset"
+            }
+        )
+    
+    try:
+        from src.playlist_app.models.database import Base, engine, create_tables
+        
+        logger.warning("Database reset requested - dropping all tables")
+        Base.metadata.drop_all(bind=engine)
+        
+        logger.info("Recreating database tables")
+        create_tables()
+        
+        return {
+            "status": "success",
+            "message": "Database reset completed successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"Database reset failed: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Database reset failed: {str(e)}"}
         )
 
 if __name__ == "__main__":

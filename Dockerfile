@@ -48,6 +48,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libffi8 \
  && rm -rf /var/lib/apt/lists/*
 
+# Create directories for models and data
+RUN mkdir -p /workspace/models /workspace/data
+
 # Install Python dependencies
 RUN pip install --no-cache-dir \
     # Core Essentia and TensorFlow
@@ -90,6 +93,8 @@ RUN pip install --no-cache-dir \
     alembic \
     dejavu \
     scikit-learn \
-    joblib
+    joblib \
+    # FAISS for vector similarity search
+    faiss-cpu>=1.7.4
 
 WORKDIR /workspace

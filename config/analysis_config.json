@@ -24,13 +24,13 @@
     },
     "algorithms": {
       "enable_tensorflow": false,
-      "enable_complex_rhythm": false,
-      "enable_complex_harmonic": false,
-      "enable_beat_tracking": false,
-      "enable_tempo_tap": false,
-      "enable_rhythm_extractor": false,
-      "enable_pitch_analysis": false,
-      "enable_chord_detection": false
+      "enable_complex_rhythm": true,
+      "enable_complex_harmonic": true,
+      "enable_beat_tracking": true,
+      "enable_tempo_tap": true,
+      "enable_rhythm_extractor": true,
+      "enable_pitch_analysis": true,
+      "enable_chord_detection": true
     }
   },
   "performance": {
@@ -127,8 +127,13 @@
       },
       "algorithms": {
         "enable_tensorflow": false,
-        "enable_complex_rhythm": false,
-        "enable_complex_harmonic": false
+        "enable_complex_rhythm": true,
+        "enable_complex_harmonic": true,
+        "enable_beat_tracking": true,
+        "enable_tempo_tap": true,
+        "enable_rhythm_extractor": true,
+        "enable_pitch_analysis": true,
+        "enable_chord_detection": true
       }
     },
     "high_speed": {

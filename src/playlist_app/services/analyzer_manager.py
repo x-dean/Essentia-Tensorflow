@@ -8,6 +8,7 @@ from ..models.database import File, AudioMetadata
 from ..core.config_loader import config_loader
 from .metadata import AudioMetadataAnalyzer
 from .audio_analysis_service import audio_analysis_service
+from .essentia_analyzer import safe_json_serialize
 
 logger = logging.getLogger(__name__)
 
@@ -164,7 +165,7 @@ class AnalyzerManager:
                 results['analysis_results'].append({
                     'file_path': file_path,
                     'status': 'success',
-                    'result': analysis_result
+                    'result': safe_json_serialize(analysis_result)
                 })
                 results['processed'] += 1
                 

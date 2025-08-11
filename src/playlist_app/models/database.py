@@ -25,6 +25,7 @@ class File(Base):
     # Relationships
     audio_metadata = relationship("AudioMetadata", back_populates="file", uselist=False)
     audio_analysis = relationship("AudioAnalysis", back_populates="file", uselist=False)
+    vector_index = relationship("VectorIndex", back_populates="file", uselist=False)
     
     def __repr__(self):
         return f"<File(id={self.id}, name='{self.file_name}', path='{self.file_path}')>"
@@ -115,45 +116,37 @@ class AudioAnalysis(Base):
     sample_rate = Column(Integer)
     duration = Column(Float)
     
-    # Basic features (stored as JSON)
+    # Basic features
     rms = Column(Float)
     energy = Column(Float)
     loudness = Column(Float)
-    spectral_centroid_mean = Column(Float)
-    spectral_centroid_std = Column(Float)
-    spectral_rolloff_mean = Column(Float)
-    spectral_rolloff_std = Column(Float)
-    spectral_contrast_mean = Column(Float)
-    spectral_contrast_std = Column(Float)
-    spectral_complexity_mean = Column(Float)
-    spectral_complexity_std = Column(Float)
+    duration = Column(Float)
     
-    # MFCC features (stored as JSON)
-    mfcc_mean = Column(Text)  # JSON array of 40 MFCC coefficients
-    mfcc_bands_mean = Column(Text)  # JSON array of mel band energies
+    # Note: Advanced spectral features are stored in complete_analysis JSON
+    # spectral_centroid_mean, spectral_centroid_std
+    # spectral_rolloff_mean, spectral_rolloff_std
+    # spectral_contrast_mean, spectral_contrast_std
+    # spectral_complexity_mean, spectral_complexity_std
+    # mfcc_mean, mfcc_bands_mean
     
     # Rhythm features
     tempo = Column(Float)
     tempo_confidence = Column(Float)
-    rhythm_bpm = Column(Float)
-    rhythm_confidence = Column(Float)
-    beat_confidence = Column(Float)
-    beats = Column(Text)  # JSON array of beat timestamps
-    rhythm_ticks = Column(Text)  # JSON array of rhythm ticks
-    rhythm_estimates = Column(Text)  # JSON array of rhythm estimates
-    onset_detections = Column(Text)  # JSON array of onset detections
+    tempo_methods_used = Column(Integer)  # Number of tempo estimation methods used
+    
+    # Note: Advanced rhythm features are stored in complete_analysis JSON
+    # beats, rhythm_ticks, rhythm_estimates, onset_detections
     
     # Harmonic features
     key = Column(String)
     scale = Column(String)
     key_strength = Column(Float)
-    chords = Column(Text)  # JSON array of detected chords
-    chord_strengths = Column(Text)  # JSON array of chord strengths
-    pitch_yin = Column(Text)  # JSON array of pitch values (Yin)
-    pitch_yin_confidence = Column(Text)  # JSON array of pitch confidences (Yin)
-    pitch_melodia = Column(Text)  # JSON array of pitch values (Melodia)
-    pitch_melodia_confidence = Column(Text)  # JSON array of pitch confidences (Melodia)
-    chromagram = Column(Text)  # JSON array of chromagram features
+    dominant_chroma = Column(String)  # Dominant chroma (C, C#, D, etc.)
+    dominant_chroma_strength = Column(Float)  # Strength of dominant chroma
+    
+    # Note: Advanced harmonic features are stored in complete_analysis JSON
+    # chords, chord_strengths, pitch_yin, pitch_yin_confidence
+    # pitch_melodia, pitch_melodia_confidence, chromagram
     
     # TensorFlow features (stored as JSON)
     tensorflow_features = Column(Text)  # JSON object with model outputs
@@ -170,6 +163,74 @@ class AudioAnalysis(Base):
     
     def __repr__(self):
         return f"<AudioAnalysis(file_id={self.file_id}, duration={self.duration}, tempo={self.tempo})>"
+
+class VectorIndex(Base):
+    """FAISS vector index metadata and track mappings"""
+    __tablename__ = "vector_index"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    file_id = Column(Integer, ForeignKey("files.id"), nullable=False, index=True)
+    
+    # Vector information
+    vector_dimension = Column(Integer, nullable=False)
+    vector_data = Column(Text)  # JSON array of feature vector values
+    vector_hash = Column(String, index=True)  # Hash of vector for change detection
+    
+    # Index metadata
+    index_type = Column(String)  # Type of FAISS index used
+    index_position = Column(Integer)  # Position in the FAISS index
+    similarity_score = Column(Float)  # Last computed similarity score
+    
+    # Feature flags
+    includes_tensorflow = Column(Boolean, default=True)
+    is_normalized = Column(Boolean, default=True)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationship
+    file = relationship("File", back_populates="vector_index")
+    
+    def __repr__(self):
+        return f"<VectorIndex(file_id={self.file_id}, dimension={self.vector_dimension}, index_type='{self.index_type}')>"
+
+class FAISSIndexMetadata(Base):
+    """Global FAISS index metadata"""
+    __tablename__ = "faiss_index_metadata"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Index configuration
+    index_name = Column(String, unique=True, index=True, nullable=False)
+    index_type = Column(String, nullable=False)  # IndexFlatIP, IndexIVFFlat, IndexIVFPQ
+    vector_dimension = Column(Integer, nullable=False)
+    total_vectors = Column(Integer, default=0)
+    
+    # Index parameters
+    nlist = Column(Integer)  # Number of clusters for IVF indexes
+    m = Column(Integer)  # Number of sub-vectors for PQ indexes
+    bits = Column(Integer)  # Bits per sub-vector for PQ indexes
+    
+    # File paths
+    index_file_path = Column(String)  # Path to .faiss file
+    metadata_file_path = Column(String)  # Path to .json metadata file
+    
+    # Performance metrics
+    build_time = Column(Float)  # Time taken to build index
+    search_time_avg = Column(Float)  # Average search time
+    memory_usage_mb = Column(Float)  # Memory usage in MB
+    
+    # Status
+    is_active = Column(Boolean, default=True)
+    last_rebuild = Column(DateTime, default=datetime.utcnow)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    def __repr__(self):
+        return f"<FAISSIndexMetadata(name='{self.index_name}', type='{self.index_type}', vectors={self.total_vectors})>"
 
 # Database configuration
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://playlist_user:playlist_password@localhost:5432/playlist_db")

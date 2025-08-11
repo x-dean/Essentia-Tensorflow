@@ -11,6 +11,12 @@ A comprehensive Docker base image for building playlist applications with advanc
 - **FFmpeg** - Multimedia processing
 - **Multiple audio formats** - MP3, WAV, FLAC, OGG, etc.
 
+### 🔍 **AI & Machine Learning**
+- **FAISS Vector Indexing** - High-performance similarity search
+- **MusiCNN Integration** - Deep learning genre and mood classification
+- **Similarity Search** - Fast music similarity search and playlist generation
+- **Vector Database** - PostgreSQL integration with vector storage
+
 ### 🌐 **Web Development**
 - **FastAPI** - High-performance API framework
 - **Flask** - Web framework
@@ -79,6 +85,25 @@ rms_value = rms(sine)
 
 print(f"MFCC shape: {mfcc_values.shape}")
 print(f"RMS: {rms_value}")
+```
+
+### FAISS Vector Similarity Search
+```python
+from playlist_app.services.faiss_service import faiss_service
+from playlist_app.models.database import get_db
+
+# Build FAISS index from analyzed tracks
+db = next(get_db())
+result = faiss_service.build_index_from_database(db, include_tensorflow=True)
+
+# Find similar tracks
+similar_tracks = faiss_service.find_similar_tracks(db, "query_track.mp3", top_n=5)
+for track_path, similarity in similar_tracks:
+    print(f"{track_path}: {similarity:.3f}")
+
+# Get index statistics
+stats = faiss_service.get_index_statistics(db)
+print(f"Index coverage: {stats['index_coverage']:.1f}%")
 ```
 
 ### FastAPI Audio Processing API
@@ -246,6 +271,68 @@ python scripts/batch_analyzer_cli.py analyze-category --category normal --no-ten
 # Output raw JSON
 python scripts/batch_analyzer_cli.py statistics --json
 ```
+
+## 🗄️ Database Management
+
+### Database Reset
+
+The application provides multiple ways to reset and recreate the database:
+
+#### CLI Commands
+```bash
+# Using the CLI script
+python scripts/cli.py reset-db --confirm
+
+# Using the simple reset script
+python scripts/reset_database.py
+
+# Windows batch file
+reset-db.bat
+
+# Unix/Linux shell script
+./reset-db.sh
+```
+
+#### API Endpoints
+```bash
+# Reset database via API (requires confirmation)
+curl -X POST "http://localhost:8000/database/reset?confirm=true"
+
+# Check database status
+curl -X GET "http://localhost:8000/api/tracks/database-status"
+
+# Reset via tracks API
+curl -X POST "http://localhost:8000/api/tracks/reset-database?confirm=true"
+```
+
+#### Docker Commands
+```bash
+# Reset database in running container
+docker exec -it <container_name> python scripts/cli.py reset-db --confirm
+
+# Reset database with fresh container
+docker-compose down
+docker-compose up -d
+```
+
+### Database Status
+
+Check the current state of your database:
+
+```bash
+# Via CLI
+python scripts/cli.py status
+
+# Via API
+curl -X GET "http://localhost:8000/api/tracks/database-status"
+```
+
+### Important Notes
+
+- **Data Loss Warning**: Database reset will permanently delete all data
+- **Backup**: Consider backing up your data before resetting
+- **Confirmation**: All reset methods require explicit confirmation
+- **PostgreSQL**: Ensure PostgreSQL is running before resetting
 
 ## 🏗️ Building Your Application
 

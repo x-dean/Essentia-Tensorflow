@@ -52,6 +52,9 @@ services:
       # Configuration mount points
       - ./config:/app/config
       
+      # Models mount point (optional)
+      - ${MODELS_DIRECTORY:-./models}:/app/models:ro
+      
       # Development mount points (optional)
       # - ./src:/app/src:ro
     depends_on:

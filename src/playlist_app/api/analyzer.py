@@ -445,3 +445,72 @@ async def get_essentia_config():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get Essentia config: {str(e)}")
+
+# === FAISS Vector Indexing Endpoints ===
+
+@router.post("/faiss/build-index")
+async def build_faiss_index(
+    db: Session = Depends(get_db),
+    include_tensorflow: bool = True,
+    force_rebuild: bool = False
+):
+    """Build FAISS index from analyzed tracks in database"""
+    try:
+        result = audio_analysis_service.build_faiss_index(db, include_tensorflow, force_rebuild)
+        return {
+            "status": "success",
+            "result": result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to build FAISS index: {str(e)}")
+
+@router.get("/faiss/similar/{file_path:path}")
+async def find_similar_tracks(
+    file_path: str,
+    top_n: int = Query(5, ge=1, le=50, description="Number of similar tracks to return"),
+    db: Session = Depends(get_db)
+):
+    """Find similar tracks using FAISS index"""
+    try:
+        similar_tracks = audio_analysis_service.find_similar_tracks(db, file_path, top_n)
+        return {
+            "status": "success",
+            "query_file": file_path,
+            "similar_tracks": [
+                {
+                    "file_path": track_path,
+                    "similarity_score": float(similarity)
+                }
+                for track_path, similarity in similar_tracks
+            ],
+            "count": len(similar_tracks)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to find similar tracks: {str(e)}")
+
+@router.get("/faiss/statistics")
+async def get_faiss_statistics(db: Session = Depends(get_db)):
+    """Get FAISS index statistics"""
+    try:
+        stats = audio_analysis_service.get_faiss_statistics(db)
+        return {
+            "status": "success",
+            "statistics": stats
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get FAISS statistics: {str(e)}")
+
+@router.post("/faiss/rebuild")
+async def rebuild_faiss_index(
+    db: Session = Depends(get_db),
+    include_tensorflow: bool = True
+):
+    """Force rebuild FAISS index"""
+    try:
+        result = audio_analysis_service.build_faiss_index(db, include_tensorflow, force_rebuild=True)
+        return {
+            "status": "success",
+            "result": result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to rebuild FAISS index: {str(e)}")
