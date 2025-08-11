@@ -141,10 +141,44 @@ def setup_logging(
         
         root_logger.addHandler(file_handler)
     
+    # Create separate log file for Essentia and TensorFlow logs
+    essentia_log_file = os.path.join(os.getcwd(), "logs", "essentia_tensorflow.log")
+    essentia_handler = logging.handlers.RotatingFileHandler(
+        essentia_log_file,
+        maxBytes=max_file_size,
+        backupCount=backup_count,
+        encoding='utf-8'
+    )
+    essentia_handler.setLevel(logging.INFO)
+    essentia_handler.setFormatter(StructuredFormatter())
+    
+    # Create separate loggers for Essentia and TensorFlow
+    essentia_logger = logging.getLogger("essentia")
+    essentia_logger.addHandler(essentia_handler)
+    essentia_logger.setLevel(logging.INFO)
+    essentia_logger.propagate = False  # Don't propagate to root logger
+    
+    tensorflow_logger = logging.getLogger("tensorflow")
+    tensorflow_logger.addHandler(essentia_handler)
+    tensorflow_logger.setLevel(logging.INFO)
+    tensorflow_logger.propagate = False  # Don't propagate to root logger
+    
     # Set specific logger levels
     logging.getLogger("uvicorn").setLevel(logging.WARNING)
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     logging.getLogger("sqlalchemy").setLevel(logging.WARNING)
+    
+    # Suppress verbose Essentia and TensorFlow logs
+    logging.getLogger("essentia").setLevel(logging.ERROR)
+    logging.getLogger("tensorflow").setLevel(logging.ERROR)
+    logging.getLogger("librosa").setLevel(logging.WARNING)
+    
+    # Suppress FFmpeg warnings
+    logging.getLogger("subprocess").setLevel(logging.WARNING)
+    
+    # Suppress any other verbose libraries
+    logging.getLogger("matplotlib").setLevel(logging.WARNING)
+    logging.getLogger("PIL").setLevel(logging.WARNING)
 
 def get_logger(name: str) -> logging.Logger:
     """Get a logger with the specified name"""

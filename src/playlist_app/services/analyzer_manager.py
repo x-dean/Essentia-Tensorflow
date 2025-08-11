@@ -7,6 +7,7 @@ from datetime import datetime
 from ..models.database import File, AudioMetadata
 from ..core.config_loader import config_loader
 from .metadata import AudioMetadataAnalyzer
+from .audio_analysis_service import audio_analysis_service
 
 logger = logging.getLogger(__name__)
 
@@ -120,24 +121,124 @@ class AnalyzerManager:
             
         return batches
     
-    def analyze_category_batch(self, file_paths: List[str], db: Session) -> Dict[str, any]:
-        """Process a batch of files from the same length category (no metadata analysis)"""
+    def analyze_category_batch(self, file_paths: List[str], db: Session, include_tensorflow: bool = True) -> Dict[str, any]:
+        """Process a batch of files from the same length category using Essentia analysis"""
         results = {
             'total_files': len(file_paths),
-            'processed': len(file_paths),
+            'processed': 0,
+            'failed': 0,
             'category': 'unknown',
             'batch_info': {
                 'file_paths': file_paths,
                 'batch_size': len(file_paths)
-            }
+            },
+            'analysis_results': [],
+            'errors': []
         }
         
-        logger.info(f"Processing batch of {len(file_paths)} files")
+        logger.info(f"Processing batch of {len(file_paths)} files with Essentia analysis")
         
-        # For now, just return the batch information
-        # Metadata analysis will be handled separately by the discovery system
-        logger.info(f"Batch processing complete: {len(file_paths)} files ready for processing")
+        # Determine category based on first file (assuming all files in batch are same category)
+        if file_paths:
+            try:
+                first_file_record = db.query(File).filter(File.file_path == file_paths[0]).first()
+                if first_file_record:
+                    metadata = db.query(AudioMetadata).filter(AudioMetadata.file_id == first_file_record.id).first()
+                    if metadata and metadata.duration:
+                        results['category'] = self.get_track_length_category(metadata.duration)
+            except Exception as e:
+                logger.warning(f"Could not determine category for batch: {e}")
+        
+        # Process each file in the batch
+        for file_path in file_paths:
+            try:
+                logger.info(f"Analyzing file: {file_path}")
+                
+                # Perform Essentia analysis
+                analysis_result = audio_analysis_service.analyze_file(
+                    db, 
+                    file_path, 
+                    include_tensorflow
+                )
+                
+                results['analysis_results'].append({
+                    'file_path': file_path,
+                    'status': 'success',
+                    'result': analysis_result
+                })
+                results['processed'] += 1
+                
+                logger.info(f"Successfully analyzed: {file_path}")
+                
+            except Exception as e:
+                error_msg = f"Analysis failed for {file_path}: {str(e)}"
+                logger.error(error_msg)
+                results['errors'].append(error_msg)
+                results['failed'] += 1
+                results['analysis_results'].append({
+                    'file_path': file_path,
+                    'status': 'failed',
+                    'error': str(e)
+                })
+        
+        logger.info(f"Batch processing complete: {results['processed']} successful, {results['failed']} failed")
         return results
+    
+    def analyze_batches_by_category(self, db: Session, category: str = None, batch_size: int = 50, 
+                                  include_tensorflow: bool = True) -> Dict[str, any]:
+        """Analyze all batches for a specific category or all categories"""
+        try:
+            # Get batches
+            batches = self.get_analysis_batches(db, batch_size, include_analyzed=False)
+            
+            # Filter by category if specified
+            if category:
+                if category not in batches:
+                    raise ValueError(f"Category '{category}' not found")
+                batches = {category: batches[category]}
+            
+            # Process batches
+            all_results = {
+                'total_batches': 0,
+                'total_files': 0,
+                'total_processed': 0,
+                'total_failed': 0,
+                'category_results': {},
+                'errors': []
+            }
+            
+            for category_name, category_batches in batches.items():
+                category_results = {
+                    'batches': [],
+                    'total_files': 0,
+                    'processed': 0,
+                    'failed': 0
+                }
+                
+                for batch in category_batches:
+                    if batch:  # Only process non-empty batches
+                        batch_result = self.analyze_category_batch(batch, db, include_tensorflow)
+                        category_results['batches'].append(batch_result)
+                        category_results['total_files'] += batch_result['total_files']
+                        category_results['processed'] += batch_result['processed']
+                        category_results['failed'] += batch_result['failed']
+                        
+                        all_results['total_batches'] += 1
+                        all_results['total_files'] += batch_result['total_files']
+                        all_results['total_processed'] += batch_result['processed']
+                        all_results['total_failed'] += batch_result['failed']
+                        
+                        # Collect errors
+                        all_results['errors'].extend(batch_result['errors'])
+                
+                all_results['category_results'][category_name] = category_results
+            
+            logger.info(f"Category analysis complete: {all_results['total_processed']} files processed, {all_results['total_failed']} failed")
+            return all_results
+            
+        except Exception as e:
+            logger.error(f"Category analysis failed: {e}")
+            raise
     
     def get_length_statistics(self, db: Session) -> Dict[str, any]:
         """Get statistics about file lengths in the database"""

@@ -419,7 +419,7 @@ class AudioMetadataAnalyzer:
                     else:
                         converted['year'] = int(year_value)
                 except (ValueError, IndexError):
-                    converted['year'] = None
+                    converted['year'] = -999  # Standardized out-of-range fallback
         
         # Convert track_number
         if 'track_number' in converted:
@@ -433,7 +433,13 @@ class AudioMetadataAnalyzer:
                     else:
                         converted['track_number'] = int(track_value)
                 except ValueError:
-                    converted['track_number'] = None
+                    converted['track_number'] = -999  # Standardized out-of-range fallback
+            elif isinstance(track_value, tuple):
+                # Handle M4A tuple format like (68, 100) or (1, 0)
+                try:
+                    converted['track_number'] = int(track_value[0])
+                except (ValueError, IndexError):
+                    converted['track_number'] = -999  # Standardized out-of-range fallback
         
         # Convert disc_number
         if 'disc_number' in converted:
@@ -447,7 +453,13 @@ class AudioMetadataAnalyzer:
                     else:
                         converted['disc_number'] = int(disc_value)
                 except ValueError:
-                    converted['disc_number'] = None
+                    converted['disc_number'] = -999  # Standardized out-of-range fallback
+            elif isinstance(disc_value, tuple):
+                # Handle M4A tuple format like (1, 0)
+                try:
+                    converted['disc_number'] = int(disc_value[0])
+                except (ValueError, IndexError):
+                    converted['disc_number'] = -999  # Standardized out-of-range fallback
         
         # Convert bpm
         if 'bpm' in converted:
@@ -456,18 +468,23 @@ class AudioMetadataAnalyzer:
                 try:
                     converted['bpm'] = float(bpm_value)
                 except ValueError:
-                    converted['bpm'] = None
+                    converted['bpm'] = -999.0  # Standardized out-of-range fallback
             elif isinstance(bpm_value, (int, float)):
                 if bpm_value > 0:
                     converted['bpm'] = float(bpm_value)
                 else:
-                    converted['bpm'] = None
+                    converted['bpm'] = -999.0  # Standardized out-of-range fallback
         
         # Convert duration
         if 'duration' in converted:
             duration_value = converted['duration']
             if isinstance(duration_value, (int, float)):
-                converted['duration'] = float(duration_value)
+                if duration_value > 0:
+                    converted['duration'] = float(duration_value)
+                else:
+                    converted['duration'] = -999.0  # Standardized out-of-range fallback
+            else:
+                converted['duration'] = -999.0  # Standardized out-of-range fallback
         
         # Convert ReplayGain values
         replaygain_fields = ['replaygain_track_gain', 'replaygain_album_gain', 
@@ -485,7 +502,7 @@ class AudioMetadataAnalyzer:
                         else:
                             converted[field] = float(value)
                     except ValueError:
-                        converted[field] = None
+                        converted[field] = -999.0  # Out-of-range fallback for ReplayGain
                 elif isinstance(value, (int, float)):
                     converted[field] = float(value)
         
@@ -501,12 +518,21 @@ class AudioMetadataAnalyzer:
                         else:
                             converted[field] = float(value)
                     except ValueError:
-                        converted[field] = None
+                        if field in ['bitrate', 'sample_rate', 'channels', 'rating']:
+                            converted[field] = -999  # Standardized out-of-range fallback for integers
+                        else:
+                            converted[field] = -999.0  # Standardized out-of-range fallback for floats
                 elif isinstance(value, (int, float)):
                     if field in ['bitrate', 'sample_rate', 'channels', 'rating']:
-                        converted[field] = int(value)
+                        if value > 0:
+                            converted[field] = int(value)
+                        else:
+                            converted[field] = -999  # Standardized out-of-range fallback for integers
                     else:
-                        converted[field] = float(value)
+                        if value > 0:
+                            converted[field] = float(value)
+                        else:
+                            converted[field] = -999.0  # Standardized out-of-range fallback for floats
         
         return converted
     

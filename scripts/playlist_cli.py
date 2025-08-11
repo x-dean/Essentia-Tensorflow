@@ -534,6 +534,166 @@ class PlaylistCLI:
         except Exception as e:
             print(f"Error creating batches: {e}")
             return False
+
+    def analyze_files(self, max_workers: int = None, max_files: int = None, include_tensorflow: bool = False, verbose: bool = False):
+        """Analyze files using the new batch processing endpoint"""
+        try:
+            params = {}
+            if max_workers is not None:
+                params['max_workers'] = max_workers
+            if max_files is not None:
+                params['max_files'] = max_files
+            if include_tensorflow:
+                params['include_tensorflow'] = include_tensorflow
+            
+            if verbose:
+                print(f"Starting file analysis...")
+                if max_workers:
+                    print(f"Max workers: {max_workers}")
+                if max_files:
+                    print(f"Max files: {max_files}")
+                if include_tensorflow:
+                    print("TensorFlow analysis: enabled")
+                print()
+            
+            response = self._make_request("POST", "/api/analyzer/analyze-batches", params=params)
+            if not response:
+                return False
+            
+            results = response.get('results', {})
+            
+            if verbose:
+                print("Analysis Results:")
+                print(f"  Total files: {results.get('total_files', 0)}")
+                print(f"  Successful: {results.get('successful', 0)}")
+                print(f"  Failed: {results.get('failed', 0)}")
+                print(f"  Processing time: {results.get('processing_time', 0):.2f}s")
+                print(f"  Files per second: {results.get('files_per_second', 0):.2f}")
+                print(f"  Max workers: {results.get('max_workers', 'N/A')}")
+                print(f"  Message: {results.get('message', '')}")
+            else:
+                print(f"Analysis complete: {results.get('successful', 0)} successful, {results.get('failed', 0)} failed in {results.get('processing_time', 0):.2f}s")
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error analyzing files: {e}")
+            return False
+
+    def force_reanalyze(self, max_workers: int = None, max_files: int = None, include_tensorflow: bool = False, verbose: bool = False):
+        """Force re-analyze all files"""
+        try:
+            params = {}
+            if max_workers is not None:
+                params['max_workers'] = max_workers
+            if max_files is not None:
+                params['max_files'] = max_files
+            if include_tensorflow:
+                params['include_tensorflow'] = include_tensorflow
+            
+            if verbose:
+                print(f"Starting force re-analysis...")
+                if max_workers:
+                    print(f"Max workers: {max_workers}")
+                if max_files:
+                    print(f"Max files: {max_files}")
+                if include_tensorflow:
+                    print("TensorFlow analysis: enabled")
+                print()
+            
+            response = self._make_request("POST", "/api/analyzer/force-reanalyze", params=params)
+            if not response:
+                return False
+            
+            results = response.get('results', {})
+            
+            if verbose:
+                print("Force Re-analysis Results:")
+                print(f"  Total files: {results.get('total_files', 0)}")
+                print(f"  Successful: {results.get('successful', 0)}")
+                print(f"  Failed: {results.get('failed', 0)}")
+                print(f"  Processing time: {results.get('processing_time', 0):.2f}s")
+                print(f"  Files per second: {results.get('files_per_second', 0):.2f}")
+                print(f"  Max workers: {results.get('max_workers', 'N/A')}")
+                print(f"  Message: {results.get('message', '')}")
+            else:
+                print(f"Force re-analysis complete: {results.get('successful', 0)} successful, {results.get('failed', 0)} failed in {results.get('processing_time', 0):.2f}s")
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error force re-analyzing files: {e}")
+            return False
+
+    def show_analysis_config(self, format: str = "table"):
+        """Show analysis configuration"""
+        try:
+            response = self._make_request("GET", "/api/analyzer/config")
+            if not response:
+                return False
+            
+            config = response.get('config', {})
+            
+            if format == "json":
+                print(json.dumps(config, indent=2))
+            else:
+                self._print_analysis_config_table(config)
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error getting analysis configuration: {e}")
+            return False
+
+    def _print_analysis_config_table(self, config: Dict):
+        """Print analysis configuration in table format"""
+        print("\nAnalysis Configuration:")
+        print("-" * 60)
+        
+        # Essentia settings
+        essentia = config.get('essentia', {})
+        print(f"{'Essentia Settings':<30} {'Value':<30}")
+        print("-" * 60)
+        print(f"{'Sample Rate':<30} {essentia.get('audio_processing', {}).get('sample_rate', 'N/A'):<30}")
+        print(f"{'Frame Size':<30} {essentia.get('audio_processing', {}).get('frame_size', 'N/A'):<30}")
+        print(f"{'Hop Size':<30} {essentia.get('audio_processing', {}).get('hop_size', 'N/A'):<30}")
+        print(f"{'Chunk Duration':<30} {essentia.get('track_analysis', {}).get('chunk_duration', 'N/A'):<30}")
+        print(f"{'Min Track Length':<30} {essentia.get('track_analysis', {}).get('min_track_length', 'N/A'):<30}")
+        print(f"{'Max Track Length':<30} {essentia.get('track_analysis', {}).get('max_track_length', 'N/A'):<30}")
+        
+        # Performance settings
+        performance = config.get('performance', {})
+        print(f"\n{'Performance Settings':<30} {'Value':<30}")
+        print("-" * 60)
+        print(f"{'Max Workers':<30} {performance.get('parallel_processing', {}).get('max_workers', 'N/A'):<30}")
+        print(f"{'Chunk Size':<30} {performance.get('parallel_processing', {}).get('chunk_size', 'N/A'):<30}")
+        print(f"{'Timeout per File':<30} {performance.get('parallel_processing', {}).get('timeout_per_file', 'N/A'):<30}")
+        print(f"{'Memory Limit (MB)':<30} {performance.get('parallel_processing', {}).get('memory_limit_mb', 'N/A'):<30}")
+        print(f"{'Batch Size':<30} {performance.get('optimization', {}).get('batch_size', 'N/A'):<30}")
+        
+        # Algorithm settings
+        algorithms = essentia.get('algorithms', {})
+        print(f"\n{'Algorithm Settings':<30} {'Value':<30}")
+        print("-" * 60)
+        print(f"{'Enable TensorFlow':<30} {algorithms.get('enable_tensorflow', 'N/A'):<30}")
+        print(f"{'Smart Segmentation':<30} {performance.get('optimization', {}).get('smart_segmentation', 'N/A'):<30}")
+        print(f"{'FFmpeg Streaming':<30} {performance.get('optimization', {}).get('use_ffmpeg_streaming', 'N/A'):<30}")
+        
+        print()
+
+    def reload_analysis_config(self):
+        """Reload analysis configuration from file"""
+        try:
+            response = self._make_request("POST", "/api/analyzer/config/reload")
+            if not response:
+                return False
+            
+            print("Analysis configuration reloaded successfully")
+            return True
+            
+        except Exception as e:
+            print(f"Error reloading analysis configuration: {e}")
+            return False
     
     def show_length_stats(self, format: str = "table"):
         """Show length statistics"""
@@ -603,6 +763,12 @@ Examples:
   %(prog)s categorize               # Categorize files by length
   %(prog)s analyze-batches         # Analyze files in batches by category
   %(prog)s analyze-batches --category long  # Analyze only long tracks
+  %(prog)s analyze                 # Analyze files with new batch processing
+  %(prog)s analyze --max-workers 4 --max-files 10  # Analyze 10 files with 4 workers
+  %(prog)s force-reanalyze         # Force re-analyze all files
+  %(prog)s force-reanalyze --max-files 1 --max-workers 1  # Re-analyze just one file
+  %(prog)s analysis-config         # Show analysis configuration
+  %(prog)s reload-config           # Reload analysis configuration
   %(prog)s length-stats            # Show length statistics
         """
     )
@@ -667,6 +833,27 @@ Examples:
     analyze_parser.add_argument('--batch-size', '-b', type=int, default=50, help='Batch size (default: 50)')
     analyze_parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output')
     
+    # New analyze command
+    new_analyze_parser = subparsers.add_parser('analyze', help='Analyze files with new batch processing')
+    new_analyze_parser.add_argument('--max-workers', '-w', type=int, help='Maximum number of workers (default: from config)')
+    new_analyze_parser.add_argument('--max-files', '-f', type=int, help='Maximum number of files to process')
+    new_analyze_parser.add_argument('--include-tensorflow', '-t', action='store_true', help='Include TensorFlow analysis')
+    new_analyze_parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output')
+    
+    # Force reanalyze command
+    force_reanalyze_parser = subparsers.add_parser('force-reanalyze', help='Force re-analyze all files')
+    force_reanalyze_parser.add_argument('--max-workers', '-w', type=int, help='Maximum number of workers (default: from config)')
+    force_reanalyze_parser.add_argument('--max-files', '-f', type=int, help='Maximum number of files to process')
+    force_reanalyze_parser.add_argument('--include-tensorflow', '-t', action='store_true', help='Include TensorFlow analysis')
+    force_reanalyze_parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output')
+    
+    # Analysis config command
+    analysis_config_parser = subparsers.add_parser('analysis-config', help='Show analysis configuration')
+    analysis_config_parser.add_argument('--format', '-f', choices=['table', 'json'], default='table', help='Output format (default: table)')
+    
+    # Reload config command
+    subparsers.add_parser('reload-config', help='Reload analysis configuration from file')
+    
     # Length stats command
     length_stats_parser = subparsers.add_parser('length-stats', help='Show length statistics')
     length_stats_parser.add_argument('--format', '-f', choices=['table', 'json'], default='table', help='Output format (default: table)')
@@ -715,6 +902,24 @@ Examples:
             success = cli.categorize_files(format=args.format)
         elif args.command == 'analyze-batches':
             success = cli.analyze_batches(category=args.category, batch_size=args.batch_size, verbose=args.verbose)
+        elif args.command == 'analyze':
+            success = cli.analyze_files(
+                max_workers=args.max_workers,
+                max_files=args.max_files,
+                include_tensorflow=args.include_tensorflow,
+                verbose=args.verbose
+            )
+        elif args.command == 'force-reanalyze':
+            success = cli.force_reanalyze(
+                max_workers=args.max_workers,
+                max_files=args.max_files,
+                include_tensorflow=args.include_tensorflow,
+                verbose=args.verbose
+            )
+        elif args.command == 'analysis-config':
+            success = cli.show_analysis_config(format=args.format)
+        elif args.command == 'reload-config':
+            success = cli.reload_analysis_config()
         elif args.command == 'length-stats':
             success = cli.show_length_stats(format=args.format)
         else:

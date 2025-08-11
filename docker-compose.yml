@@ -29,6 +29,13 @@ services:
       - .env
     environment:
       - DATABASE_URL=postgresql://playlist_user:playlist_password@postgres:5432/playlist_db
+      # Suppress verbose logs from external libraries
+      - TF_CPP_MIN_LOG_LEVEL=3
+      - TF_ENABLE_ONEDNN_OPTS=0
+      - TF_GPU_ALLOCATOR=cpu
+      - CUDA_VISIBLE_DEVICES=-1
+      - LIBROSA_LOG_LEVEL=WARNING
+      - PYTHONWARNINGS=ignore
     volumes:
       # Logs mount points
       - ./logs:/app/logs

@@ -100,6 +100,29 @@ async def analyze_audio(file: UploadFile = File(...)):
         audio = np.mean(audio, axis=1)
 ```
 
+### Audio Analysis with Essentia
+The application includes a comprehensive audio analysis system using Essentia and TensorFlow with **category-based analysis strategies**:
+
+- **Normal Tracks (0-5 min)**: Full track analysis - complete feature extraction
+- **Long Tracks (5-10 min)**: Chunked analysis - overlapping segments for comprehensive coverage
+- **Very Long Tracks (10+ min)**: Key segment analysis - beginning, middle, and end segments
+- **Basic Features**: RMS, energy, loudness, spectral characteristics
+- **Rhythm Analysis**: Tempo, beat tracking, onset detection
+- **Harmonic Analysis**: Pitch, key detection, chord recognition
+- **TensorFlow Models**: MusiCNN, TempoCNN, VGGish, FSDSINet
+
+```python
+from src.playlist_app.services.essentia_analyzer import essentia_analyzer
+
+# Analyze audio file
+results = essentia_analyzer.analyze_audio_file("track.mp3")
+
+# Get key features
+summary = essentia_analyzer.get_analysis_summary(results)
+print(f"Tempo: {summary['key_features']['tempo']} BPM")
+print(f"Key: {summary['key_features']['key']} {summary['key_features']['scale']}")
+```
+
 ### Genre Enrichment with Multiple APIs
 The application includes a sophisticated genre enrichment system that uses multiple external APIs:
 
@@ -152,6 +175,76 @@ tensorflow_algorithms = [
 # Example usage
 vggish = es.TensorflowInputVGGish()
 # Process audio with VGGish model
+```
+
+### Audio Analysis API
+The application provides REST API endpoints for audio analysis with batch processing based on track length:
+
+```bash
+# Analyze a single file
+curl -X POST "http://localhost:8000/api/analyzer/analyze-file" \
+  -H "Content-Type: application/json" \
+  -d '{"file_path": "music/track.mp3", "include_tensorflow": true}'
+
+# Analyze multiple files in batch
+curl -X POST "http://localhost:8000/api/analyzer/analyze-files" \
+  -H "Content-Type: application/json" \
+  -d '{"file_paths": ["music/track1.mp3", "music/track2.mp3"], "include_tensorflow": true}'
+
+# Analyze files by length category (normal, long, very_long)
+curl -X POST "http://localhost:8000/api/analyzer/analyze-category/normal?include_tensorflow=true"
+
+# Process all batches automatically using existing length-based categorization
+curl -X POST "http://localhost:8000/api/analyzer/analyze-batches?include_tensorflow=true"
+
+# Get analysis results
+curl "http://localhost:8000/api/analyzer/analysis/music/track.mp3"
+
+# Get analysis summary
+curl "http://localhost:8000/api/analyzer/analysis-summary/music/track.mp3"
+
+# Get unanalyzed files
+curl "http://localhost:8000/api/analyzer/unanalyzed-files?limit=10"
+
+# Get analysis statistics
+curl "http://localhost:8000/api/analyzer/statistics"
+
+# Get length categories and statistics
+curl "http://localhost:8000/api/analyzer/categorize"
+curl "http://localhost:8000/api/analyzer/length-stats"
+curl "http://localhost:8000/api/analyzer/categories"
+```
+
+### Command Line Interface (CLI)
+The application also provides a comprehensive CLI tool for batch analysis:
+
+```bash
+# Get file categorization
+python scripts/batch_analyzer_cli.py categorize
+
+# Analyze all batches automatically
+python scripts/batch_analyzer_cli.py analyze-all
+
+# Analyze specific category
+python scripts/batch_analyzer_cli.py analyze-category normal
+
+# Analyze specific files
+python scripts/batch_analyzer_cli.py analyze-files music/track1.mp3 music/track2.mp3
+
+# Get statistics
+python scripts/batch_analyzer_cli.py statistics
+
+# Get analysis for a file
+python scripts/batch_analyzer_cli.py get-analysis music/track.mp3
+
+# Get unanalyzed files
+python scripts/batch_analyzer_cli.py unanalyzed --limit 10
+
+# Disable TensorFlow models for faster analysis
+python scripts/batch_analyzer_cli.py analyze-category --category normal --no-tensorflow
+
+# Output raw JSON
+python scripts/batch_analyzer_cli.py statistics --json
 ```
 
 ## 🏗️ Building Your Application
@@ -267,6 +360,18 @@ docker run --rm playlista-base test-essentia
 
 # Test all dependencies
 docker run --rm playlista-base test-playlist-deps
+
+# Test Essentia analyzer
+python test_essentia_analyzer.py
+
+# Test batch analysis functionality
+python test_batch_analysis.py
+
+# Test CLI integration
+python test_cli_integration.py
+
+# Demo CLI usage
+python demo_cli_usage.py
 ```
 
 ### Custom Testing
@@ -374,6 +479,16 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - **TensorFlow** - Machine learning framework by Google
 - **Librosa** - Audio analysis library
 - **FastAPI** - Modern web framework
+
+## 📚 Documentation
+
+### Core Documentation
+- **[Audio Analysis Configuration Guide](docs/Audio_Analysis_Configuration_Guide.md)** - Comprehensive guide for analysis configuration
+- **[Fallback Values System](docs/Fallback_Values_System.md)** - Standardized error handling and data quality management
+
+### API Documentation
+- **FastAPI Auto-docs**: Available at `http://localhost:8000/docs` when running the application
+- **OpenAPI Schema**: Available at `http://localhost:8000/openapi.json`
 
 ## 📞 Support
 

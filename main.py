@@ -36,6 +36,34 @@ setup_logging(
     structured_console=os.getenv("LOG_STRUCTURED_CONSOLE", "false").lower() == "true"
 )
 
+# Suppress TensorFlow and Essentia logs using proper methods
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # Suppress INFO, WARNING, and ERROR logs
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"  # Disable oneDNN optimization messages
+os.environ["TF_GPU_ALLOCATOR"] = "cpu"  # Force CPU allocation
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # Disable GPU
+
+# Suppress Essentia logs
+try:
+    import essentia
+    essentia.log.infoActive = False      # Disable INFO messages
+    essentia.log.warningActive = False   # Disable WARNING messages
+    # Keep ERROR active for critical issues
+except ImportError:
+    pass
+
+# Suppress other library logs
+os.environ["LIBROSA_LOG_LEVEL"] = "WARNING"
+os.environ["PYTHONWARNINGS"] = "ignore"
+
+# Also suppress via Python logging if not in debug mode
+if os.getenv("LOG_LEVEL", "INFO").upper() != "DEBUG":
+    import logging
+    logging.getLogger("essentia").setLevel(logging.ERROR)
+    logging.getLogger("tensorflow").setLevel(logging.ERROR)
+    logging.getLogger("librosa").setLevel(logging.WARNING)
+    logging.getLogger("matplotlib").setLevel(logging.ERROR)
+    logging.getLogger("PIL").setLevel(logging.ERROR)
+
 logger = get_logger(__name__)
 
 # Global variables for background discovery

@@ -22,8 +22,9 @@ class File(Base):
     is_analyzed = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
     
-    # Relationship
+    # Relationships
     audio_metadata = relationship("AudioMetadata", back_populates="file", uselist=False)
+    audio_analysis = relationship("AudioAnalysis", back_populates="file", uselist=False)
     
     def __repr__(self):
         return f"<File(id={self.id}, name='{self.file_name}', path='{self.file_path}')>"
@@ -100,6 +101,75 @@ class AudioMetadata(Base):
     
     def __repr__(self):
         return f"<AudioMetadata(file_id={self.file_id}, title='{self.title}', artist='{self.artist}')>"
+
+class AudioAnalysis(Base):
+    """Audio analysis results from Essentia"""
+    __tablename__ = "audio_analysis"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    file_id = Column(Integer, ForeignKey("files.id"), nullable=False, index=True)
+    
+    # Analysis metadata
+    analysis_timestamp = Column(DateTime, default=datetime.utcnow)
+    analysis_duration = Column(Float)  # Time taken for analysis in seconds
+    sample_rate = Column(Integer)
+    duration = Column(Float)
+    
+    # Basic features (stored as JSON)
+    rms = Column(Float)
+    energy = Column(Float)
+    loudness = Column(Float)
+    spectral_centroid_mean = Column(Float)
+    spectral_centroid_std = Column(Float)
+    spectral_rolloff_mean = Column(Float)
+    spectral_rolloff_std = Column(Float)
+    spectral_contrast_mean = Column(Float)
+    spectral_contrast_std = Column(Float)
+    spectral_complexity_mean = Column(Float)
+    spectral_complexity_std = Column(Float)
+    
+    # MFCC features (stored as JSON)
+    mfcc_mean = Column(Text)  # JSON array of 40 MFCC coefficients
+    mfcc_bands_mean = Column(Text)  # JSON array of mel band energies
+    
+    # Rhythm features
+    tempo = Column(Float)
+    tempo_confidence = Column(Float)
+    rhythm_bpm = Column(Float)
+    rhythm_confidence = Column(Float)
+    beat_confidence = Column(Float)
+    beats = Column(Text)  # JSON array of beat timestamps
+    rhythm_ticks = Column(Text)  # JSON array of rhythm ticks
+    rhythm_estimates = Column(Text)  # JSON array of rhythm estimates
+    onset_detections = Column(Text)  # JSON array of onset detections
+    
+    # Harmonic features
+    key = Column(String)
+    scale = Column(String)
+    key_strength = Column(Float)
+    chords = Column(Text)  # JSON array of detected chords
+    chord_strengths = Column(Text)  # JSON array of chord strengths
+    pitch_yin = Column(Text)  # JSON array of pitch values (Yin)
+    pitch_yin_confidence = Column(Text)  # JSON array of pitch confidences (Yin)
+    pitch_melodia = Column(Text)  # JSON array of pitch values (Melodia)
+    pitch_melodia_confidence = Column(Text)  # JSON array of pitch confidences (Melodia)
+    chromagram = Column(Text)  # JSON array of chromagram features
+    
+    # TensorFlow features (stored as JSON)
+    tensorflow_features = Column(Text)  # JSON object with model outputs
+    
+    # Complete analysis results (for detailed access)
+    complete_analysis = Column(Text)  # JSON object with all analysis data
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationship
+    file = relationship("File", back_populates="audio_analysis")
+    
+    def __repr__(self):
+        return f"<AudioAnalysis(file_id={self.file_id}, duration={self.duration}, tempo={self.tempo})>"
 
 # Database configuration
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://playlist_user:playlist_password@localhost:5432/playlist_db")
