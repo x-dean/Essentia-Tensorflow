@@ -191,6 +191,107 @@ Validating search directories...
 Some search directories do not exist. Please check your configuration.
 ```
 
+### `categorize` - Categorize Files by Length
+Categorizes audio files based on their duration into length categories.
+
+```bash
+./cli.py categorize [--format FORMAT]
+```
+
+**Options:**
+- `--format, -f`: Output format: `table` or `json` (default: table)
+
+**Categories:**
+- `normal`: 0-5 minutes (0-300 seconds)
+- `long`: 5-10 minutes (300-600 seconds)  
+- `very_long`: 10+ minutes (600+ seconds)
+- `unknown`: Files with unknown duration
+
+**Table Output:**
+```
+File Length Categories:
+------------------------------------------------------------
+Category         Count      Description                    
+------------------------------------------------------------
+normal           45         0-5 minutes                    
+long             12         5-10 minutes                   
+very_long        3          10+ minutes                    
+unknown          0          Unknown duration               
+------------------------------------------------------------
+Total            60                                         
+```
+
+### `analyze-batches` - Analyze Files in Batches
+Analyzes files in batches organized by length category for efficient processing.
+
+```bash
+./cli.py analyze-batches [--category CATEGORY] [--batch-size N] [--verbose]
+```
+
+**Options:**
+- `--category, -c`: Specific category to analyze: `normal`, `long`, or `very_long`
+- `--batch-size, -b`: Number of files per batch (default: 50)
+- `--verbose, -v`: Show detailed output
+
+**Examples:**
+```bash
+# Analyze all categories in batches
+./cli.py analyze-batches --batch-size 25
+
+# Analyze only long tracks
+./cli.py analyze-batches --category long --verbose
+
+# Analyze with custom batch size
+./cli.py analyze-batches --batch-size 100
+```
+
+**Verbose Output:**
+```
+Analyzing files in batches (batch_size: 50)
+
+Analysis Results:
+  Total batches processed: 3
+  Total files processed: 120
+  Successful: 115
+  Failed: 5
+
+Category Statistics:
+  normal: 85
+  long: 25
+  very_long: 5
+```
+
+### `length-stats` - Show Length Statistics
+Displays detailed statistics about file lengths and categories.
+
+```bash
+./cli.py length-stats [--format FORMAT]
+```
+
+**Options:**
+- `--format, -f`: Output format: `table` or `json` (default: table)
+
+**Table Output:**
+```
+Length Statistics:
+------------------------------------------------------------
+Metric                      Value                             
+------------------------------------------------------------
+Total files                 150                               
+Analyzed files              120                               
+
+Category Counts:
+  normal: 85
+  long: 25
+  very_long: 5
+  unknown: 5
+
+Duration Ranges:
+  Min duration: 45 seconds
+  Max duration: 1800 seconds
+  Avg duration: 245.67 seconds
+```
+
 ## Configuration
 
 The CLI uses the same configuration as the API. Set environment variables to customize behavior:

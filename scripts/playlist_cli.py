@@ -448,6 +448,136 @@ class PlaylistCLI:
             genre = (metadata.get('genre') or "")[:11]
             
             print(f"{title:<30} {artist:<20} {album:<20} {year:<6} {genre:<12}")
+    
+    def categorize_files(self, format: str = "table"):
+        """Categorize files by length"""
+        try:
+            response = self._make_request("GET", "/api/analyzer/categorize")
+            if not response:
+                return False
+            
+            categories = response.get('categories', {})
+            
+            if format == "json":
+                print(json.dumps(categories, indent=2))
+            else:
+                self._print_categories_table(categories)
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error categorizing files: {e}")
+            return False
+    
+    def _print_categories_table(self, categories: Dict):
+        """Print categories in table format"""
+        print("\nFile Length Categories:")
+        print("-" * 60)
+        print(f"{'Category':<15} {'Count':<10} {'Description':<35}")
+        print("-" * 60)
+        
+        total_files = 0
+        for category, files in categories.items():
+            count = len(files)
+            total_files += count
+            
+            if category == 'normal':
+                description = "0-5 minutes"
+            elif category == 'long':
+                description = "5-10 minutes"
+            elif category == 'very_long':
+                description = "10+ minutes"
+            else:
+                description = "Unknown duration"
+            
+            print(f"{category:<15} {count:<10} {description:<35}")
+        
+        print("-" * 60)
+        print(f"{'Total':<15} {total_files:<10}")
+        print()
+    
+    def analyze_batches(self, category: str = None, batch_size: int = 50, verbose: bool = False):
+        """Create batches of files by category for later processing"""
+        try:
+            params = {'batch_size': batch_size}
+            if category:
+                params['category'] = category
+            
+            if verbose:
+                print(f"Creating batches by category (batch_size: {batch_size})")
+                if category:
+                    print(f"Category: {category}")
+                print()
+            
+            response = self._make_request("POST", "/api/analyzer/analyze-batches", json=params)
+            if not response:
+                return False
+            
+            results = response.get('results', {})
+            
+            if verbose:
+                print("Batch Creation Results:")
+                print(f"  Total batches created: {results.get('total_batches', 0)}")
+                print(f"  Total files in batches: {results.get('total_files', 0)}")
+                print(f"  Message: {results.get('message', '')}")
+                
+                batch_results = results.get('batch_results', [])
+                if batch_results:
+                    print("\nBatch Details:")
+                    for i, batch in enumerate(batch_results, 1):
+                        print(f"  Batch {i}: {batch['category']} - {batch['batch_size']} files")
+            else:
+                print(f"Batch creation complete: {results.get('total_batches', 0)} batches created with {results.get('total_files', 0)} files")
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error creating batches: {e}")
+            return False
+    
+    def show_length_stats(self, format: str = "table"):
+        """Show length statistics"""
+        try:
+            response = self._make_request("GET", "/api/analyzer/length-stats")
+            if not response:
+                return False
+            
+            stats = response.get('stats', {})
+            
+            if format == "json":
+                print(json.dumps(stats, indent=2))
+            else:
+                self._print_length_stats_table(stats)
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error getting length statistics: {e}")
+            return False
+    
+    def _print_length_stats_table(self, stats: Dict):
+        """Print length statistics in table format"""
+        print("\nLength Statistics:")
+        print("-" * 60)
+        print(f"{'Metric':<25} {'Value':<35}")
+        print("-" * 60)
+        
+        print(f"{'Total files':<25} {stats.get('total_files', 0):<35}")
+        print(f"{'Analyzed files':<25} {stats.get('analyzed_files', 0):<35}")
+        
+        print("\nCategory Counts:")
+        category_counts = stats.get('category_counts', {})
+        for category, count in category_counts.items():
+            print(f"  {category}: {count}")
+        
+        duration_ranges = stats.get('duration_ranges', {})
+        if duration_ranges.get('min_duration') is not None:
+            print(f"\nDuration Ranges:")
+            print(f"  Min duration: {duration_ranges['min_duration']} seconds")
+            print(f"  Max duration: {duration_ranges['max_duration']} seconds")
+            print(f"  Avg duration: {duration_ranges['avg_duration']:.2f} seconds")
+        
+        print()
 
 def main():
     """Main CLI entry point"""
@@ -470,6 +600,10 @@ Examples:
   %(prog)s search --query "love"   # Search for songs with "love" in title/artist/album
   %(prog)s search --artist "Coldplay" --year 2020  # Search by artist and year
   %(prog)s enrich-genres --limit 5  # Enrich genre information for 5 files using MusicBrainz
+  %(prog)s categorize               # Categorize files by length
+  %(prog)s analyze-batches         # Analyze files in batches by category
+  %(prog)s analyze-batches --category long  # Analyze only long tracks
+  %(prog)s length-stats            # Show length statistics
         """
     )
     
@@ -523,6 +657,20 @@ Examples:
     enrich_parser.add_argument('--limit', '-n', type=int, default=10, help='Number of files to process (default: 10)')
     enrich_parser.add_argument('--format', '-f', choices=['table', 'json'], default='table', help='Output format (default: table)')
     
+    # Categorize files command
+    categorize_parser = subparsers.add_parser('categorize', help='Categorize files by length')
+    categorize_parser.add_argument('--format', '-f', choices=['table', 'json'], default='table', help='Output format (default: table)')
+    
+    # Analyze batches command
+    analyze_parser = subparsers.add_parser('analyze-batches', help='Analyze files in batches by category')
+    analyze_parser.add_argument('--category', '-c', type=str, choices=['normal', 'long', 'very_long'], help='Specific category to analyze')
+    analyze_parser.add_argument('--batch-size', '-b', type=int, default=50, help='Batch size (default: 50)')
+    analyze_parser.add_argument('--verbose', '-v', action='store_true', help='Verbose output')
+    
+    # Length stats command
+    length_stats_parser = subparsers.add_parser('length-stats', help='Show length statistics')
+    length_stats_parser.add_argument('--format', '-f', choices=['table', 'json'], default='table', help='Output format (default: table)')
+    
 
     
     args = parser.parse_args()
@@ -563,7 +711,12 @@ Examples:
             )
         elif args.command == 'enrich-genres':
             success = cli.enrich_genres(limit=args.limit, format=args.format)
-
+        elif args.command == 'categorize':
+            success = cli.categorize_files(format=args.format)
+        elif args.command == 'analyze-batches':
+            success = cli.analyze_batches(category=args.category, batch_size=args.batch_size, verbose=args.verbose)
+        elif args.command == 'length-stats':
+            success = cli.show_length_stats(format=args.format)
         else:
             print(f"Unknown command: {args.command}")
             return 1

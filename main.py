@@ -21,6 +21,7 @@ from src.playlist_app.services.discovery import DiscoveryService
 from src.playlist_app.api.discovery import router as discovery_router
 from src.playlist_app.api.config import router as config_router
 from src.playlist_app.api.metadata import router as metadata_router
+from src.playlist_app.api.analyzer import router as analyzer_router
 from src.playlist_app.core.config import DiscoveryConfig
 from src.playlist_app.core.logging import setup_logging, get_logger, log_performance
 
@@ -168,6 +169,7 @@ app = FastAPI(
 app.include_router(discovery_router)
 app.include_router(config_router)
 app.include_router(metadata_router)
+app.include_router(analyzer_router)
 
 @app.get("/")
 async def root():

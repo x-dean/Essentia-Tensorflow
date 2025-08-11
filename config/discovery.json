@@ -35,5 +35,22 @@
     "custom_title_field": "title",
     "custom_artist_field": "artist",
     "custom_album_field": "album"
+  },
+  "length_categories": {
+    "normal": {
+      "min_duration": 0,
+      "max_duration": 300,
+      "description": "0-5 minutes"
+    },
+    "long": {
+      "min_duration": 300,
+      "max_duration": 600,
+      "description": "5-10 minutes"
+    },
+    "very_long": {
+      "min_duration": 600,
+      "max_duration": null,
+      "description": "10+ minutes"
+    }
   }
 }
