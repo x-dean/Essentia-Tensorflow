@@ -84,7 +84,7 @@ async def get_all_tracks(
             query = query.join(AudioMetadata)
         
         total_count = query.count()
-        tracks = query.offset(offset).limit(limit).all()
+        tracks = query.order_by(File.discovered_at.desc()).offset(offset).limit(limit).all()
         
         if format == "minimal":
             result = [
@@ -107,7 +107,10 @@ async def get_all_tracks(
                     "file_size": track.file_size,
                     "file_extension": track.file_extension,
                     "discovered_at": track.discovered_at.isoformat() if track.discovered_at else None,
+                    "status": track.status.value if track.status else None,
                     "is_analyzed": track.is_analyzed,
+                    "has_metadata": track.has_metadata,
+                    "has_audio_analysis": track.has_audio_analysis,
                     "is_active": track.is_active
                 }
                 

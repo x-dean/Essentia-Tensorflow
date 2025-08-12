@@ -138,6 +138,8 @@ async def analyze_batches(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to analyze batches: {str(e)}")
 
+
+
 @router.post("/analyze-category/{category}")
 async def analyze_category(
     category: str,

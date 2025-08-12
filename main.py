@@ -13,6 +13,7 @@ import time
 
 from fastapi import FastAPI, BackgroundTasks
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 # Import our application components
@@ -192,6 +193,15 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Add request ID middleware (temporarily disabled)
 # app.add_middleware(RequestIdMiddleware)
 
@@ -203,9 +213,9 @@ app.include_router(analyzer_router)
 app.include_router(tracks_router)
 app.include_router(faiss_router)
 
-@app.get("/")
-async def root():
-    """Root endpoint with app information"""
+@app.get("/api")
+async def api_info():
+    """API information endpoint"""
     return {
         "message": "Playlist App API - Audio discovery and playlist generation",
         "version": "0.1.0",
@@ -349,6 +359,9 @@ async def reset_database(confirm: bool = False):
             status_code=500,
             content={"error": f"Database reset failed: {str(e)}"}
         )
+
+# Note: Static files are served by nginx in the web-ui container
+# No static file mounting needed in the backend API
 
 if __name__ == "__main__":
     # Get configuration from environment

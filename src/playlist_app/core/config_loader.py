@@ -61,8 +61,17 @@ class ConfigLoader:
         return config
     
     def get_database_config(self) -> Dict[str, Any]:
-        """Get database configuration with fallback to environment variables"""
+        """Get database configuration with environment variable override"""
         config = self.load_config("database")
+        
+        # Always prioritize DATABASE_URL environment variable over config file
+        database_url = os.getenv("DATABASE_URL")
+        if database_url:
+            if not config:
+                config = {}
+            if "connection" not in config:
+                config["connection"] = {}
+            config["connection"]["url"] = database_url
         
         # Fallback to environment variables if config file is empty
         if not config:

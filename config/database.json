@@ -1,6 +1,6 @@
 {
   "connection": {
-    "url": "postgresql://playlist_user:playlist_password@localhost:5432/playlist_db",
+    "url": "postgresql://playlist_user:playlist_password@postgres:5432/playlist_db",
     "pool_size": 10,
     "max_overflow": 20,
     "pool_timeout": 30,

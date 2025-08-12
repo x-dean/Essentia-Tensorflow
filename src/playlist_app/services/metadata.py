@@ -274,7 +274,15 @@ class AudioMetadataAnalyzer:
                 metadata['duration'] = audio.info.length
                 metadata['sample_rate'] = audio.info.sample_rate
                 metadata['channels'] = audio.info.channels
-                metadata['bitrate'] = audio.info.bits_per_sample
+                # Calculate bitrate for FLAC: (file_size * 8) / duration
+                # For FLAC, we'll use bits_per_sample * sample_rate * channels as approximation
+                if audio.info.bits_per_sample and audio.info.sample_rate and audio.info.channels:
+                    metadata['bitrate'] = audio.info.bits_per_sample * audio.info.sample_rate * audio.info.channels
+                else:
+                    # Fallback: calculate from file size and duration
+                    file_size = file_path.stat().st_size
+                    if metadata.get('duration') and metadata['duration'] > 0:
+                        metadata['bitrate'] = int((file_size * 8) / metadata['duration'])
                 
         except Exception as e:
             logger.error(f"Error extracting FLAC metadata: {e}")
@@ -342,7 +350,9 @@ class AudioMetadataAnalyzer:
                 metadata['duration'] = audio.info.length
                 metadata['sample_rate'] = audio.info.sample_rate
                 metadata['channels'] = audio.info.channels
-                metadata['bitrate'] = audio.info.bits_per_sample
+                # Calculate bitrate for WAV: bits_per_sample * sample_rate * channels
+                if audio.info.bits_per_sample and audio.info.sample_rate and audio.info.channels:
+                    metadata['bitrate'] = audio.info.bits_per_sample * audio.info.sample_rate * audio.info.channels
                 
         except Exception as e:
             logger.error(f"Error extracting WAV metadata: {e}")
