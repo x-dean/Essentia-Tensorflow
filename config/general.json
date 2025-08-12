@@ -1,0 +1,11 @@
+{
+  "log_level": "DEBUG",
+  "background_discovery_enabled": true,
+  "discovery_interval": 600,
+  "cache_ttl": 7200,
+  "api_host": "0.0.0.0",
+  "_metadata": {
+    "last_updated": "2025-08-12T22:07:48.971728",
+    "version": "1.0"
+  }
+}

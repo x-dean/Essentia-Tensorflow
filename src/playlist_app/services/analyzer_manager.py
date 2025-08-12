@@ -157,7 +157,6 @@ class AnalyzerManager:
                 
                 # Perform Essentia analysis
                 analysis_result = audio_analysis_service.analyze_file(
-                    db, 
                     file_path, 
                     include_tensorflow
                 )

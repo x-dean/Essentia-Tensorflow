@@ -4,9 +4,10 @@ from typing import Dict, List, Optional, Any, Tuple
 from sqlalchemy.orm import Session
 from datetime import datetime
 import time
+from contextlib import contextmanager
 
 from sqlalchemy.orm import Session
-from ..models.database import File, AudioAnalysis, AudioMetadata, get_db, FileStatus
+from ..models.database import File, AudioAnalysis, AudioMetadata, get_db_session, close_db_session, FileStatus
 from ..core.logging import get_logger
 from .essentia_analyzer import essentia_analyzer, safe_json_serialize, EssentiaConfig
 from .faiss_service import faiss_service
@@ -25,12 +26,57 @@ class AudioAnalysisService:
         if config:
             self.analyzer.config = config
     
-    def analyze_file(self, db: Session, file_path: str, include_tensorflow: bool = True, force_reanalyze: bool = False) -> Dict[str, Any]:
+    @contextmanager
+    def _get_db_session(self):
+        """Context manager for database sessions with proper error handling and retry logic"""
+        # Get retry settings from configuration
+        try:
+            from ..core.config_loader import config_loader
+            db_config = config_loader.get_database_config()
+            retry_settings = db_config.get("retry_settings", {})
+            max_retries = retry_settings.get("max_retries", 3)
+            retry_delay = retry_settings.get("initial_delay", 1)
+            backoff_multiplier = retry_settings.get("backoff_multiplier", 2)
+            max_delay = retry_settings.get("max_delay", 30)
+        except Exception:
+            # Fallback to hardcoded values
+            max_retries = 3
+            retry_delay = 1
+            backoff_multiplier = 2
+            max_delay = 30
+        
+        delay = retry_delay
+        for attempt in range(max_retries):
+            db = get_db_session()
+            try:
+                yield db
+                break  # Success, exit retry loop
+            except Exception as e:
+                close_db_session(db)
+                
+                # Check if it's a connection-related error
+                if "server closed the connection" in str(e) or "PGRES_TUPLES_OK" in str(e):
+                    if attempt < max_retries - 1:
+                        logger.warning(f"Database connection error (attempt {attempt + 1}/{max_retries}): {e}")
+                        import time
+                        time.sleep(delay)
+                        delay = min(delay * backoff_multiplier, max_delay)  # Exponential backoff with cap
+                        continue
+                    else:
+                        logger.error(f"Database connection failed after {max_retries} attempts: {e}")
+                        raise
+                else:
+                    # Non-connection error, don't retry
+                    raise
+            finally:
+                if attempt == max_retries - 1:
+                    close_db_session(db)
+    
+    def analyze_file(self, file_path: str, include_tensorflow: bool = True, force_reanalyze: bool = False) -> Dict[str, Any]:
         """
         Analyze a single audio file and store results in database.
         
         Args:
-            db: Database session
             file_path: Path to audio file
             include_tensorflow: Whether to include TensorFlow model analysis
             force_reanalyze: Whether to force re-analysis even if it exists
@@ -38,77 +84,77 @@ class AudioAnalysisService:
         Returns:
             Analysis results
         """
-        try:
-            # Check if file exists in database
-            file_record = db.query(File).filter(File.file_path == file_path).first()
-            if not file_record:
-                raise ValueError(f"File not found in database: {file_path}")
-            
-            # Check if analysis already exists
-            existing_analysis = db.query(AudioAnalysis).filter(
-                AudioAnalysis.file_id == file_record.id
-            ).first()
-            
-            if existing_analysis and not force_reanalyze:
-                logger.info(f"Analysis already exists for {file_path}, returning existing results")
-                return self._load_analysis_from_db(existing_analysis)
-            
-            # If force re-analyze, delete existing analysis
-            if existing_analysis and force_reanalyze:
-                logger.info(f"Force re-analyzing {file_path}, deleting existing analysis")
-                db.delete(existing_analysis)
-                db.commit()
-            
-            # Determine track category based on duration
-            category = self._get_track_category(db, file_record)
-            logger.info(f"Track category determined: {category}")
-            
-            # Perform analysis with category-specific strategy
-            logger.info(f"Starting analysis for {file_path} (category: {category})")
-            analysis_results = self.analyzer.analyze_audio_file(file_path, include_tensorflow, category)
-            
-            # Store in database
-            analysis_record = self._store_analysis_in_db(db, file_record.id, analysis_results)
-            
-            # Mark file as analyzed
-            file_record.has_audio_analysis = True
-            file_record.is_analyzed = True
-            file_record.status = FileStatus.ANALYZED
-            db.commit()
-            
-            # Add to FAISS index for similarity search
+        with self._get_db_session() as db:
             try:
-                faiss_result = faiss_service.add_track_to_index(db, file_path, include_tensorflow)
-                if faiss_result.get("success"):
-                    logger.info(f"Track added to FAISS index: {file_path}")
-                else:
-                    logger.warning(f"Failed to add track to FAISS index: {faiss_result.get('error')}")
-            except Exception as e:
-                logger.warning(f"FAISS indexing failed for {file_path}: {e}")
-            
-            logger.info(f"Analysis completed and stored for {file_path}")
-            return safe_json_serialize(analysis_results)
-            
-        except Exception as e:
-            logger.error(f"Analysis failed for {file_path}: {e}")
-            # Mark file as failed
-            try:
+                # Check if file exists in database
                 file_record = db.query(File).filter(File.file_path == file_path).first()
-                if file_record:
-                    file_record.status = FileStatus.FAILED
+                if not file_record:
+                    raise ValueError(f"File not found in database: {file_path}")
+                
+                # Check if analysis already exists
+                existing_analysis = db.query(AudioAnalysis).filter(
+                    AudioAnalysis.file_id == file_record.id
+                ).first()
+                
+                if existing_analysis and not force_reanalyze:
+                    logger.info(f"Analysis already exists for {file_path}, returning existing results")
+                    return self._load_analysis_from_db(existing_analysis)
+                
+                # If force re-analyze, delete existing analysis
+                if existing_analysis and force_reanalyze:
+                    logger.info(f"Force re-analyzing {file_path}, deleting existing analysis")
+                    db.delete(existing_analysis)
                     db.commit()
-            except Exception as db_error:
-                logger.error(f"Failed to update file status to FAILED: {db_error}")
-            db.rollback()
-            raise
+                
+                # Determine track category based on duration
+                category = self._get_track_category(db, file_record)
+                logger.info(f"Track category determined: {category}")
+                
+                # Perform analysis with category-specific strategy
+                logger.info(f"Starting analysis for {file_path} (category: {category})")
+                analysis_results = self.analyzer.analyze_audio_file(file_path, include_tensorflow, category)
+                
+                # Store in database
+                analysis_record = self._store_analysis_in_db(db, file_record.id, analysis_results)
+                
+                # Mark file as analyzed
+                file_record.has_audio_analysis = True
+                file_record.is_analyzed = True
+                file_record.status = FileStatus.ANALYZED
+                db.commit()
+                
+                # Add to FAISS index for similarity search (in separate session)
+                try:
+                    with self._get_db_session() as faiss_db:
+                        faiss_result = faiss_service.add_track_to_index(faiss_db, file_path, include_tensorflow)
+                        if faiss_result.get("success"):
+                            logger.info(f"Track added to FAISS index: {file_path}")
+                        else:
+                            logger.warning(f"Failed to add track to FAISS index: {faiss_result.get('error')}")
+                except Exception as e:
+                    logger.warning(f"FAISS indexing failed for {file_path}: {e}")
+                
+                logger.info(f"Analysis completed and stored for {file_path}")
+                return safe_json_serialize(analysis_results)
+                
+            except Exception as e:
+                logger.error(f"Analysis failed for {file_path}: {e}")
+                # Mark file as failed
+                try:
+                    file_record = db.query(File).filter(File.file_path == file_path).first()
+                    if file_record:
+                        file_record.status = FileStatus.FAILED
+                        db.commit()
+                except Exception as db_error:
+                    logger.error(f"Failed to update file status to FAILED: {db_error}")
+                raise
     
-    def analyze_files_batch(self, db: Session, file_paths: List[str], 
+    def analyze_files_batch(self, file_paths: List[str], 
                           include_tensorflow: bool = True) -> Dict[str, Any]:
         """
         Analyze multiple files in batch.
         
         Args:
-            db: Database session
             file_paths: List of file paths to analyze
             include_tensorflow: Whether to include TensorFlow model analysis
             
@@ -125,7 +171,7 @@ class AudioAnalysisService:
         
         for file_path in file_paths:
             try:
-                analysis_result = self.analyze_file(db, file_path, include_tensorflow)
+                analysis_result = self.analyze_file(file_path, include_tensorflow)
                 results['analysis_results'].append({
                     'file_path': file_path,
                     'status': 'success',
@@ -147,48 +193,47 @@ class AudioAnalysisService:
         logger.info(f"Batch analysis completed: {results['successful']} successful, {results['failed']} failed")
         return results
     
-    def get_analysis(self, db: Session, file_path: str) -> Optional[Dict[str, Any]]:
+    def get_analysis(self, file_path: str) -> Optional[Dict[str, Any]]:
         """
         Retrieve analysis results for a file.
         
         Args:
-            db: Database session
             file_path: Path to audio file
             
         Returns:
             Analysis results or None if not found
         """
-        try:
-            file_record = db.query(File).filter(File.file_path == file_path).first()
-            if not file_record:
+        with self._get_db_session() as db:
+            try:
+                file_record = db.query(File).filter(File.file_path == file_path).first()
+                if not file_record:
+                    return None
+                
+                analysis_record = db.query(AudioAnalysis).filter(
+                    AudioAnalysis.file_id == file_record.id
+                ).first()
+                
+                if not analysis_record:
+                    return None
+                
+                return self._load_analysis_from_db(analysis_record)
+                
+            except Exception as e:
+                logger.error(f"Failed to retrieve analysis for {file_path}: {e}")
                 return None
-            
-            analysis_record = db.query(AudioAnalysis).filter(
-                AudioAnalysis.file_id == file_record.id
-            ).first()
-            
-            if not analysis_record:
-                return None
-            
-            return self._load_analysis_from_db(analysis_record)
-            
-        except Exception as e:
-            logger.error(f"Failed to retrieve analysis for {file_path}: {e}")
-            return None
     
-    def get_analysis_summary(self, db: Session, file_path: str) -> Optional[Dict[str, Any]]:
+    def get_analysis_summary(self, file_path: str) -> Optional[Dict[str, Any]]:
         """
         Get a summary of analysis results for a file.
         
         Args:
-            db: Database session
             file_path: Path to audio file
             
         Returns:
             Analysis summary or None if not found
         """
         try:
-            analysis_results = self.get_analysis(db, file_path)
+            analysis_results = self.get_analysis(file_path)
             if not analysis_results:
                 return None
             
@@ -198,149 +243,144 @@ class AudioAnalysisService:
             logger.error(f"Failed to get analysis summary for {file_path}: {e}")
             return None
     
-    def get_unanalyzed_files(self, db: Session, limit: Optional[int] = None) -> List[str]:
+    def get_unanalyzed_files(self, limit: Optional[int] = None) -> List[str]:
         """
         Get list of files that haven't been analyzed yet.
         
         Args:
-            db: Database session
             limit: Maximum number of files to return
             
         Returns:
             List of file paths
         """
-        try:
-            query = db.query(File).filter(File.is_analyzed == False)
-            if limit:
-                query = query.limit(limit)
-            
-            files = query.all()
-            return [file.file_path for file in files]
-            
-        except Exception as e:
-            logger.error(f"Failed to get unanalyzed files: {e}")
-            return []
+        with self._get_db_session() as db:
+            try:
+                query = db.query(File).filter(File.is_analyzed == False)
+                if limit:
+                    query = query.limit(limit)
+                
+                files = query.all()
+                return [file.file_path for file in files]
+                
+            except Exception as e:
+                logger.error(f"Failed to get unanalyzed files: {e}")
+                return []
     
-    def get_analysis_statistics(self, db: Session) -> Dict[str, Any]:
+    def get_analysis_statistics(self) -> Dict[str, Any]:
         """
         Get statistics about analysis coverage.
         
-        Args:
-            db: Database session
-            
         Returns:
             Analysis statistics
         """
-        try:
-            total_files = db.query(File).count()
-            analyzed_files = db.query(File).filter(File.has_audio_analysis == True).count()
-            unanalyzed_files = total_files - analyzed_files
-            
-            # Get analysis duration statistics
-            analysis_durations = db.query(AudioAnalysis.analysis_duration).all()
-            avg_analysis_duration = 0
-            if analysis_durations:
-                durations = [d[0] for d in analysis_durations if d[0] is not None]
-                if durations:
-                    avg_analysis_duration = sum(durations) / len(durations)
-            
-            # Get tempo statistics
-            tempos = db.query(AudioAnalysis.tempo).filter(AudioAnalysis.tempo.isnot(None)).all()
-            tempo_stats = {}
-            if tempos:
-                tempo_values = [t[0] for t in tempos]
-                tempo_stats = {
-                    'min': min(tempo_values),
-                    'max': max(tempo_values),
-                    'avg': sum(tempo_values) / len(tempo_values)
+        with self._get_db_session() as db:
+            try:
+                total_files = db.query(File).count()
+                analyzed_files = db.query(File).filter(File.has_audio_analysis == True).count()
+                unanalyzed_files = total_files - analyzed_files
+                
+                # Get analysis duration statistics
+                analysis_durations = db.query(AudioAnalysis.analysis_duration).all()
+                avg_analysis_duration = 0
+                if analysis_durations:
+                    durations = [d[0] for d in analysis_durations if d[0] is not None]
+                    if durations:
+                        avg_analysis_duration = sum(durations) / len(durations)
+                
+                # Get tempo statistics
+                tempos = db.query(AudioAnalysis.tempo).filter(AudioAnalysis.tempo.isnot(None)).all()
+                tempo_stats = {}
+                if tempos:
+                    tempo_values = [t[0] for t in tempos]
+                    tempo_stats = {
+                        'min': min(tempo_values),
+                        'max': max(tempo_values),
+                        'avg': sum(tempo_values) / len(tempo_values)
+                    }
+                
+                return {
+                    'total_files': total_files,
+                    'analyzed_files': analyzed_files,
+                    'unanalyzed_files': unanalyzed_files,
+                    'analysis_coverage': (analyzed_files / total_files * 100) if total_files > 0 else 0,
+                    'avg_analysis_duration': avg_analysis_duration,
+                    'tempo_statistics': tempo_stats
                 }
-            
-            return {
-                'total_files': total_files,
-                'analyzed_files': analyzed_files,
-                'unanalyzed_files': unanalyzed_files,
-                'analysis_coverage': (analyzed_files / total_files * 100) if total_files > 0 else 0,
-                'avg_analysis_duration': avg_analysis_duration,
-                'tempo_statistics': tempo_stats
-            }
-            
-        except Exception as e:
-            logger.error(f"Failed to get analysis statistics: {e}")
-            return {}
+                
+            except Exception as e:
+                logger.error(f"Failed to get analysis statistics: {e}")
+                return {}
     
-    def build_faiss_index(self, db: Session, include_tensorflow: bool = True, force_rebuild: bool = False) -> Dict[str, Any]:
+    def build_faiss_index(self, include_tensorflow: bool = True, force_rebuild: bool = False) -> Dict[str, Any]:
         """
         Build FAISS index from analyzed tracks in database.
         
         Args:
-            db: Database session
             include_tensorflow: Whether to include MusiCNN features
             force_rebuild: Whether to force rebuild existing index
             
         Returns:
             Build results
         """
-        return faiss_service.build_index_from_database(db, include_tensorflow, force_rebuild)
+        with self._get_db_session() as db:
+            return faiss_service.build_index_from_database(db, include_tensorflow, force_rebuild)
     
-    def find_similar_tracks(self, db: Session, query_path: str, top_n: int = 5) -> List[Tuple[str, float]]:
+    def find_similar_tracks(self, query_path: str, top_n: int = 5) -> List[Tuple[str, float]]:
         """
         Find similar tracks using FAISS index.
         
         Args:
-            db: Database session
             query_path: Path to query audio file
             top_n: Number of similar tracks to return
             
         Returns:
             List of (track_path, similarity_score) tuples
         """
-        return faiss_service.find_similar_tracks(db, query_path, top_n)
+        with self._get_db_session() as db:
+            return faiss_service.find_similar_tracks(db, query_path, top_n)
     
-    def get_faiss_statistics(self, db: Session) -> Dict[str, Any]:
+    def get_faiss_statistics(self) -> Dict[str, Any]:
         """
         Get FAISS index statistics.
         
-        Args:
-            db: Database session
-            
         Returns:
             FAISS index statistics
         """
-        return faiss_service.get_index_statistics(db)
+        with self._get_db_session() as db:
+            return faiss_service.get_index_statistics(db)
     
-    def delete_analysis(self, db: Session, file_path: str) -> bool:
+    def delete_analysis(self, file_path: str) -> bool:
         """
         Delete analysis results for a file.
         
         Args:
-            db: Database session
             file_path: Path to audio file
             
         Returns:
             True if successful, False otherwise
         """
-        try:
-            file_record = db.query(File).filter(File.file_path == file_path).first()
-            if not file_record:
+        with self._get_db_session() as db:
+            try:
+                file_record = db.query(File).filter(File.file_path == file_path).first()
+                if not file_record:
+                    return False
+                
+                analysis_record = db.query(AudioAnalysis).filter(
+                    AudioAnalysis.file_id == file_record.id
+                ).first()
+                
+                if analysis_record:
+                    db.delete(analysis_record)
+                    file_record.is_analyzed = False
+                    db.commit()
+                    logger.info(f"Analysis deleted for {file_path}")
+                    return True
+                
                 return False
-            
-            analysis_record = db.query(AudioAnalysis).filter(
-                AudioAnalysis.file_id == file_record.id
-            ).first()
-            
-            if analysis_record:
-                db.delete(analysis_record)
-                file_record.is_analyzed = False
-                db.commit()
-                logger.info(f"Analysis deleted for {file_path}")
-                return True
-            
-            return False
-            
-        except Exception as e:
-            logger.error(f"Failed to delete analysis for {file_path}: {e}")
-            db.rollback()
-            return False
+                
+            except Exception as e:
+                logger.error(f"Failed to delete analysis for {file_path}: {e}")
+                return False
     
     def _store_analysis_in_db(self, db: Session, file_id: int, analysis_results: Dict[str, Any]) -> AudioAnalysis:
         """

@@ -218,12 +218,12 @@ const Tracks: React.FC = () => {
     <div className="space-y-6">
       <div className="flex justify-between items-start">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Tracks</h1>
-          <p className="mt-1 text-sm text-gray-500">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Tracks</h1>
+          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
             Manage and browse your music library
           </p>
         </div>
-        <div className="flex items-center space-x-4 text-sm text-gray-500">
+        <div className="flex items-center space-x-4 text-sm text-gray-500 dark:text-gray-400">
           <span>Total: {stats?.total_files || 0}</span>
           <span>Analyzed: {stats?.analyzed_files || 0}</span>
           <span>Pending: {stats?.unanalyzed_files || 0}</span>
@@ -231,7 +231,7 @@ const Tracks: React.FC = () => {
       </div>
 
       {/* Search and Filters */}
-      <div className="bg-white shadow rounded-lg p-6">
+      <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
         <form onSubmit={handleSearch} className="space-y-4">
           <div className="flex space-x-4">
             <div className="flex-1">
@@ -242,7 +242,7 @@ const Tracks: React.FC = () => {
                   placeholder="Search tracks, artists, albums..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-indigo-500 focus:border-indigo-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                 />
               </div>
             </div>
@@ -285,7 +285,7 @@ const Tracks: React.FC = () => {
       </div>
 
       {/* Tracks List */}
-      <div className="bg-white shadow rounded-lg">
+      <div className="bg-white dark:bg-gray-800 shadow rounded-lg">
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <LoadingSpinner size="lg" text="Loading tracks..." />
@@ -293,13 +293,13 @@ const Tracks: React.FC = () => {
                  ) : error ? (
            <div className="p-6 text-center">
              <div className="text-red-600 mb-2">Error loading tracks</div>
-             <div className="text-sm text-gray-500">{error instanceof Error ? error.message : 'Unknown error'}</div>
+             <div className="text-sm text-gray-500 dark:text-gray-400">{error instanceof Error ? error.message : 'Unknown error'}</div>
            </div>
         ) : currentTracks.length === 0 ? (
           <div className="p-6 text-center">
             <Music className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No tracks found</h3>
-            <p className="text-gray-500">
+            <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">No tracks found</h3>
+            <p className="text-gray-500 dark:text-gray-400">
               {searchQuery || statusFilter !== 'all' 
                 ? 'Try adjusting your search or filter criteria.'
                 : 'No tracks have been discovered yet. Start by discovering music files.'
@@ -310,10 +310,10 @@ const Tracks: React.FC = () => {
           <>
                          <div className="overflow-x-auto">
                                <table className="min-w-full divide-y divide-gray-200 text-xs">
-                  <thead className="bg-gray-50">
+                  <thead className="bg-gray-50 dark:bg-gray-700">
                     <tr>
                       <th 
-                        className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-1/4 cursor-pointer hover:bg-gray-100"
+                        className="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider w-1/4 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600"
                         onClick={() => handleSort('title')}
                       >
                         <div className="flex items-center justify-between">
@@ -380,9 +380,9 @@ const Tracks: React.FC = () => {
                        </th>
                      </tr>
                    </thead>
-                 <tbody className="bg-white divide-y divide-gray-200">
-                   {currentTracks.map((track: any) => (
-                     <tr key={track.id} className="hover:bg-gray-50">
+                                   <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                    {currentTracks.map((track: any) => (
+                      <tr key={track.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                        <td className="px-3 py-2 whitespace-nowrap">
                          <div className="flex items-center">
                            <div className="flex-shrink-0 h-6 w-6">
@@ -391,27 +391,27 @@ const Tracks: React.FC = () => {
                              </div>
                            </div>
                            <div className="ml-2">
-                             <div className="text-xs font-medium text-gray-900 truncate max-w-32">
-                               {track.title || track.file_name}
-                             </div>
-                             <div className="text-xs text-gray-500">
-                               {track.file_extension.toUpperCase()}
-                             </div>
+                                                           <div className="text-xs font-medium text-gray-900 dark:text-white truncate max-w-32">
+                                {track.title || track.file_name}
+                              </div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400">
+                                {track.file_extension.toUpperCase()}
+                              </div>
                            </div>
                          </div>
                        </td>
-                       <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-900 truncate max-w-24">
-                         {track.artist || 'Unknown'}
-                       </td>
-                       <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-900 truncate max-w-24">
-                         {track.album || 'Unknown'}
-                       </td>
-                       <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-900">
-                         {formatDuration(track.duration)}
-                       </td>
-                       <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-900">
-                         {formatFileSize(track.file_size)}
-                       </td>
+                                               <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-900 dark:text-white truncate max-w-24">
+                          {track.artist || 'Unknown'}
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-900 dark:text-white truncate max-w-24">
+                          {track.album || 'Unknown'}
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-900 dark:text-white">
+                          {formatDuration(track.duration)}
+                        </td>
+                        <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-900 dark:text-white">
+                          {formatFileSize(track.file_size)}
+                        </td>
                        <td className="px-3 py-2 whitespace-nowrap">
                          {(() => {
                            const statusInfo = getStatusInfo(track);
@@ -425,8 +425,8 @@ const Tracks: React.FC = () => {
                            );
                          })()}
                        </td>
-                       <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-900">
-                         <div className="space-y-0.5">
+                                               <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-900 dark:text-white">
+                          <div className="space-y-0.5">
                            {track.tempo && (
                              <div className="text-xs">
                                <span className="font-medium">T:</span> {Math.round(track.tempo)}
@@ -444,10 +444,10 @@ const Tracks: React.FC = () => {
                            )}
                          </div>
                        </td>
-                       <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-900">
-                         <button
-                           onClick={() => handleTrackDetails(track)}
-                           className="inline-flex items-center px-2 py-1 border border-gray-300 rounded text-xs font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                                               <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-900 dark:text-white">
+                          <button
+                            onClick={() => handleTrackDetails(track)}
+                            className="inline-flex items-center px-2 py-1 border border-gray-300 dark:border-gray-600 rounded text-xs font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                          >
                            <Eye className="w-3 h-3 mr-1" />
                            Details
@@ -461,29 +461,29 @@ const Tracks: React.FC = () => {
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div className="px-6 py-4 border-t border-gray-200">
-                <div className="flex items-center justify-between">
-                  <div className="text-sm text-gray-700">
-                    Page {currentPage} of {totalPages}
-                  </div>
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-                      disabled={currentPage === 1}
-                      className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      Previous
-                    </button>
-                    <button
-                      onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-                      disabled={currentPage === totalPages}
-                      className="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      Next
-                    </button>
-                  </div>
-                </div>
-              </div>
+                             <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700">
+                 <div className="flex items-center justify-between">
+                   <div className="text-sm text-gray-700 dark:text-gray-300">
+                     Page {currentPage} of {totalPages}
+                   </div>
+                   <div className="flex space-x-2">
+                     <button
+                       onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+                       disabled={currentPage === 1}
+                       className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300"
+                     >
+                       Previous
+                     </button>
+                     <button
+                       onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
+                       disabled={currentPage === totalPages}
+                       className="px-3 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300"
+                     >
+                       Next
+                     </button>
+                   </div>
+                 </div>
+               </div>
             )}
                      </>
          )}
@@ -492,10 +492,10 @@ const Tracks: React.FC = () => {
        {/* Track Details Modal */}
        {showDetails && selectedTrack && (
          <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-           <div className="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white">
-             <div className="mt-3">
-               <div className="flex justify-between items-center mb-4">
-                 <h3 className="text-lg font-medium text-gray-900">Track Details</h3>
+                     <div className="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-md bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700">
+            <div className="mt-3">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-medium text-gray-900 dark:text-white">Track Details</h3>
                  <button
                    onClick={closeDetails}
                    className="text-gray-400 hover:text-gray-600"
@@ -507,57 +507,57 @@ const Tracks: React.FC = () => {
                <div className="space-y-4 max-h-96 overflow-y-auto">
                  {/* Basic Information */}
                  <div>
-                   <h4 className="text-sm font-medium text-gray-700 mb-2">Basic Information</h4>
-                   <div className="grid grid-cols-2 gap-2 text-xs">
-                     <div><span className="font-medium">Title:</span> {selectedTrack.title || 'Unknown'}</div>
-                     <div><span className="font-medium">Artist:</span> {selectedTrack.artist || 'Unknown'}</div>
-                     <div><span className="font-medium">Album:</span> {selectedTrack.album || 'Unknown'}</div>
-                     <div><span className="font-medium">Genre:</span> {selectedTrack.genre || 'Unknown'}</div>
-                     <div><span className="font-medium">Year:</span> {selectedTrack.year || 'Unknown'}</div>
-                     <div><span className="font-medium">Track Number:</span> {selectedTrack.track_number || 'Unknown'}</div>
-                     <div><span className="font-medium">Duration:</span> {formatDuration(selectedTrack.duration)}</div>
-                     <div><span className="font-medium">File Size:</span> {formatFileSize(selectedTrack.file_size)}</div>
-                     <div><span className="font-medium">File Extension:</span> {selectedTrack.file_extension?.toUpperCase()}</div>
-                                           <div><span className="font-medium">Bitrate:</span> {selectedTrack.bitrate ? (selectedTrack.bitrate < 1000 ? `${selectedTrack.bitrate} bps` : `${Math.round(selectedTrack.bitrate / 1000)} kbps`) : 'Unknown'}</div>
-                     <div><span className="font-medium">Sample Rate:</span> {selectedTrack.sample_rate ? `${selectedTrack.sample_rate} Hz` : 'Unknown'}</div>
-                     <div><span className="font-medium">Discovered:</span> {selectedTrack.discovered_at ? new Date(selectedTrack.discovered_at).toLocaleDateString() : 'Unknown'}</div>
-                   </div>
+                   <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Basic Information</h4>
+                                       <div className="grid grid-cols-2 gap-2 text-xs text-gray-900 dark:text-white">
+                      <div><span className="font-medium">Title:</span> {selectedTrack.title || 'Unknown'}</div>
+                      <div><span className="font-medium">Artist:</span> {selectedTrack.artist || 'Unknown'}</div>
+                      <div><span className="font-medium">Album:</span> {selectedTrack.album || 'Unknown'}</div>
+                      <div><span className="font-medium">Genre:</span> {selectedTrack.genre || 'Unknown'}</div>
+                      <div><span className="font-medium">Year:</span> {selectedTrack.year || 'Unknown'}</div>
+                      <div><span className="font-medium">Track Number:</span> {selectedTrack.track_number || 'Unknown'}</div>
+                      <div><span className="font-medium">Duration:</span> {formatDuration(selectedTrack.duration)}</div>
+                      <div><span className="font-medium">File Size:</span> {formatFileSize(selectedTrack.file_size)}</div>
+                      <div><span className="font-medium">File Extension:</span> {selectedTrack.file_extension?.toUpperCase()}</div>
+                                            <div><span className="font-medium">Bitrate:</span> {selectedTrack.bitrate ? (selectedTrack.bitrate < 1000 ? `${selectedTrack.bitrate} bps` : `${Math.round(selectedTrack.bitrate / 1000)} kbps`) : 'Unknown'}</div>
+                      <div><span className="font-medium">Sample Rate:</span> {selectedTrack.sample_rate ? `${selectedTrack.sample_rate} Hz` : 'Unknown'}</div>
+                      <div><span className="font-medium">Discovered:</span> {selectedTrack.discovered_at ? new Date(selectedTrack.discovered_at).toLocaleDateString() : 'Unknown'}</div>
+                    </div>
                  </div>
 
-                 {/* Analysis Information */}
-                 {selectedTrack.tempo && (
-                   <div>
-                     <h4 className="text-sm font-medium text-gray-700 mb-2">Audio Analysis</h4>
-                     <div className="grid grid-cols-2 gap-2 text-xs">
-                       <div><span className="font-medium">Tempo:</span> {Math.round(selectedTrack.tempo)} BPM</div>
-                       <div><span className="font-medium">Key:</span> {selectedTrack.key || 'Unknown'}</div>
-                       <div><span className="font-medium">Scale:</span> {selectedTrack.scale || 'Unknown'}</div>
-                       <div><span className="font-medium">Key Strength:</span> {selectedTrack.key_strength ? Math.round(selectedTrack.key_strength * 100) + '%' : 'Unknown'}</div>
-                       <div><span className="font-medium">Energy:</span> {selectedTrack.energy ? Math.round(selectedTrack.energy * 100) + '%' : 'Unknown'}</div>
-                       <div><span className="font-medium">Loudness:</span> {selectedTrack.loudness ? `${selectedTrack.loudness.toFixed(1)} dB` : 'Unknown'}</div>
-                       {selectedTrack.analysis_timestamp && (
-                         <div><span className="font-medium">Analyzed:</span> {new Date(selectedTrack.analysis_timestamp).toLocaleString()}</div>
-                       )}
-                     </div>
+                                   {/* Analysis Information */}
+                  {selectedTrack.tempo && (
+                    <div>
+                      <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Audio Analysis</h4>
+                                           <div className="grid grid-cols-2 gap-2 text-xs text-gray-900 dark:text-white">
+                        <div><span className="font-medium">Tempo:</span> {Math.round(selectedTrack.tempo)} BPM</div>
+                        <div><span className="font-medium">Key:</span> {selectedTrack.key || 'Unknown'}</div>
+                        <div><span className="font-medium">Scale:</span> {selectedTrack.scale || 'Unknown'}</div>
+                        <div><span className="font-medium">Key Strength:</span> {selectedTrack.key_strength ? Math.round(selectedTrack.key_strength * 100) + '%' : 'Unknown'}</div>
+                        <div><span className="font-medium">Energy:</span> {selectedTrack.energy ? Math.round(selectedTrack.energy * 100) + '%' : 'Unknown'}</div>
+                        <div><span className="font-medium">Loudness:</span> {selectedTrack.loudness ? `${selectedTrack.loudness.toFixed(1)} dB` : 'Unknown'}</div>
+                        {selectedTrack.analysis_timestamp && (
+                          <div><span className="font-medium">Analyzed:</span> {new Date(selectedTrack.analysis_timestamp).toLocaleString()}</div>
+                        )}
+                      </div>
                    </div>
                  )}
 
-                                   {/* Processing Status */}
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-700 mb-2">Processing Status</h4>
-                    <div className="grid grid-cols-1 gap-2 text-xs">
-                      <div><span className="font-medium">Current Status:</span> {selectedTrack.status || 'discovered'}</div>
-                      <div><span className="font-medium">Processing Complete:</span> {selectedTrack.is_analyzed ? 'Yes' : 'No'}</div>
-                    </div>
+                                                     {/* Processing Status */}
+                   <div>
+                     <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Processing Status</h4>
+                                         <div className="grid grid-cols-1 gap-2 text-xs text-gray-900 dark:text-white">
+                       <div><span className="font-medium">Current Status:</span> {selectedTrack.status || 'discovered'}</div>
+                       <div><span className="font-medium">Processing Complete:</span> {selectedTrack.is_analyzed ? 'Yes' : 'No'}</div>
+                     </div>
                   </div>
 
-                 {/* File Path */}
-                 <div>
-                   <h4 className="text-sm font-medium text-gray-700 mb-2">File Path</h4>
-                   <div className="text-xs bg-gray-100 p-2 rounded break-all">
-                     {selectedTrack.file_path}
-                   </div>
-                 </div>
+                                   {/* File Path */}
+                  <div>
+                    <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">File Path</h4>
+                    <div className="text-xs bg-gray-100 dark:bg-gray-700 p-2 rounded break-all text-gray-800 dark:text-gray-200">
+                      {selectedTrack.file_path}
+                    </div>
+                  </div>
                </div>
              </div>
            </div>

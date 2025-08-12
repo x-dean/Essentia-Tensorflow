@@ -14,13 +14,36 @@ logger = logging.getLogger(__name__)
 class LastFMService:
     """Service for querying Last.fm API for genre information"""
     
-    def __init__(self, config: Dict):
+    def __init__(self, config: Dict = None):
+        # Load configuration from app settings if not provided
+        if config is None:
+            try:
+                from ..core.config_loader import config_loader
+                app_config = config_loader.get_app_settings()
+                config = app_config.get("external_apis", {}).get("lastfm", {})
+            except Exception as e:
+                logger.warning(f"Failed to load LastFM configuration: {e}, using defaults")
+                config = {}
+        
         self.config = config
         self.api_key = config.get('api_key', '')
         self.base_url = config.get('base_url', 'https://ws.audioscrobbler.com/2.0/')
         self.rate_limit = config.get('rate_limit', 0.5)  # requests per second
         self.timeout = config.get('timeout', 10)
         self.enabled = config.get('enabled', True)
+        
+        # Retry configuration
+        self.retry_settings = config.get('retry_settings', {
+            "max_retries": 3,
+            "backoff_factor": 2,
+            "max_backoff": 60
+        })
+        
+        # Cache configuration
+        self.cache_settings = config.get('cache_settings', {
+            "enabled": True,
+            "ttl_seconds": 1800
+        })
         
         # Rate limiting
         self.last_request_time = 0
@@ -36,28 +59,46 @@ class LastFMService:
         self.last_request_time = time.time()
     
     def _make_request(self, params: Dict) -> Optional[Dict]:
-        """Make a request to Last.fm API with rate limiting"""
+        """Make a request to Last.fm API with rate limiting and retry logic"""
         if not self.enabled or not self.api_key:
             return None
-            
-        try:
-            self._rate_limit()
-            
-            # Add required parameters
-            params.update({
-                'api_key': self.api_key,
-                'format': 'json'
-            })
-            
-            response = requests.get(self.base_url, params=params, timeout=self.timeout)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Last.fm API request failed: {e}")
-            return None
-        except Exception as e:
-            logger.error(f"Unexpected error in Last.fm request: {e}")
-            return None
+        
+        max_retries = self.retry_settings.get("max_retries", 3)
+        backoff_factor = self.retry_settings.get("backoff_factor", 2)
+        max_backoff = self.retry_settings.get("max_backoff", 60)
+        
+        for attempt in range(max_retries):
+            try:
+                self._rate_limit()
+                
+                # Add required parameters
+                params.update({
+                    'api_key': self.api_key,
+                    'format': 'json'
+                })
+                
+                response = requests.get(self.base_url, params=params, timeout=self.timeout)
+                response.raise_for_status()
+                return response.json()
+                
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"Last.fm API request failed (attempt {attempt + 1}/{max_retries}): {e}")
+                
+                if attempt < max_retries - 1:
+                    # Calculate backoff time
+                    backoff_time = min(backoff_factor ** attempt, max_backoff)
+                    logger.info(f"Retrying in {backoff_time} seconds...")
+                    time.sleep(backoff_time)
+                    continue
+                else:
+                    logger.error(f"Last.fm API request failed after {max_retries} attempts: {e}")
+                    return None
+                    
+            except Exception as e:
+                logger.error(f"Unexpected error in Last.fm request: {e}")
+                return None
+        
+        return None
     
     def get_track_genre(self, artist: str, title: str) -> Optional[str]:
         """Get genre for a specific track using Last.fm"""

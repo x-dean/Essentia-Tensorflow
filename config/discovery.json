@@ -1,56 +1,12 @@
 {
-  "search_directories": [
-    "/music",
-    "/audio",
-    "/extra_music"
-  ],
   "supported_extensions": [
     ".mp3",
-    ".wav", 
-    ".flac",
-    ".ogg",
-    ".m4a",
-    ".aac",
-    ".wma",
-    ".opus"
+    ".wav",
+    ".flac"
   ],
-  "cache_settings": {
-    "ttl": 3600,
-    "max_size": 1000,
-    "enable_cache": true
-  },
-  "scan_settings": {
-    "batch_size": 100,
-    "recursive": true,
-    "follow_symlinks": false,
-    "max_file_size": 1073741824
-  },
-  "hash_settings": {
-    "algorithm": "md5",
-    "include_filename": true,
-    "include_filesize": true,
-    "include_path": false
-  },
-  "metadata_mapping": {
-    "custom_title_field": "title",
-    "custom_artist_field": "artist",
-    "custom_album_field": "album"
-  },
-  "length_categories": {
-    "normal": {
-      "min_duration": 0,
-      "max_duration": 300,
-      "description": "0-5 minutes"
-    },
-    "long": {
-      "min_duration": 300,
-      "max_duration": 600,
-      "description": "5-10 minutes"
-    },
-    "very_long": {
-      "min_duration": 600,
-      "max_duration": null,
-      "description": "10+ minutes"
-    }
+  "batch_size": 990,
+  "_metadata": {
+    "last_updated": "2025-08-12T20:10:08.707303",
+    "version": "1.0"
   }
 }

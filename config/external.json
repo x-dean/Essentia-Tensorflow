@@ -1,0 +1,29 @@
+{
+  "external_apis": {
+    "musicbrainz": {
+      "enabled": false,
+      "rateLimit": 0.5,
+      "timeout": 15,
+      "userAgent": "TestApp/1.0"
+    },
+    "lastfm": {
+      "enabled": true,
+      "apiKey": "test_key",
+      "baseUrl": "https://test.example.com/",
+      "rateLimit": 0.3,
+      "timeout": 8
+    },
+    "discogs": {
+      "enabled": true,
+      "apiKey": "test_discogs_key",
+      "baseUrl": "https://test.discogs.com/",
+      "rateLimit": 0.8,
+      "timeout": 12,
+      "userAgent": "TestApp/1.0"
+    }
+  },
+  "_metadata": {
+    "last_updated": "2025-08-12T22:07:49.052619",
+    "version": "1.0"
+  }
+}

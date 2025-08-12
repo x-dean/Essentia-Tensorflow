@@ -94,6 +94,7 @@ RUN pip install --no-cache-dir \
     dejavu \
     scikit-learn \
     joblib \
+    jsonschema \
     # FAISS for vector similarity search
     faiss-cpu>=1.7.4
 

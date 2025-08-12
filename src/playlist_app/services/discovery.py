@@ -24,7 +24,17 @@ class DiscoveryService:
     def calculate_file_hash(self, file_name: str, file_size: int) -> str:
         """Calculate hash from filename + filesize"""
         hash_input = f"{file_name}_{file_size}".encode('utf-8')
-        return hashlib.md5(hash_input).hexdigest()
+        hash_algorithm = DiscoveryConfig.get_hash_algorithm()
+        
+        if hash_algorithm == "md5":
+            return hashlib.md5(hash_input).hexdigest()
+        elif hash_algorithm == "sha1":
+            return hashlib.sha1(hash_input).hexdigest()
+        elif hash_algorithm == "sha256":
+            return hashlib.sha256(hash_input).hexdigest()
+        else:
+            # Default to MD5 if unknown algorithm
+            return hashlib.md5(hash_input).hexdigest()
     
     def get_file_info(self, file_path: str) -> Dict:
         """Get file information"""

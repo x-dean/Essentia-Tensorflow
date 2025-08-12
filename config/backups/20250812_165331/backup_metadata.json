@@ -1,0 +1,13 @@
+{
+  "backup_date": "2025-08-12T16:53:31.764400",
+  "files_backed_up": [
+    "analysis_config.json",
+    "app_settings.json",
+    "database.json",
+    "discovery.json",
+    "external.json",
+    "general.json",
+    "logging.json"
+  ],
+  "backup_location": "/app/config/backups/20250812_165331"
+}

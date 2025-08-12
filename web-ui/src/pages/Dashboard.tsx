@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getHealth, triggerDiscovery, analyzeBatches, getTracks } from '../services/api';
+import { getHealth, triggerDiscovery, analyzeBatches, getTracks, getDiscoveryStatus, triggerAnalysis, getAnalysisStatus } from '../services/api';
 import { Activity, Database, Music, Search, Play, Pause, RefreshCw, AlertCircle, CheckCircle, Clock, BarChart3, Loader2 } from 'lucide-react';
 import LoadingSpinner from '../components/LoadingSpinner';
 import StatusIndicator from '../components/StatusIndicator';
@@ -11,7 +11,11 @@ const Dashboard: React.FC = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [discoveryProgress, setDiscoveryProgress] = useState(0);
+  const [discoveryMessage, setDiscoveryMessage] = useState("");
+  const [discoveryCount, setDiscoveryCount] = useState(0);
   const [analysisProgress, setAnalysisProgress] = useState(0);
+  const [analysisMessage, setAnalysisMessage] = useState("");
+  const [analysisCount, setAnalysisCount] = useState(0);
   const [backgroundDiscovery, setBackgroundDiscovery] = useState(false);
   const [backgroundAnalysis, setBackgroundAnalysis] = useState(false);
 
@@ -22,6 +26,26 @@ const Dashboard: React.FC = () => {
     refetchInterval: 60000, // Refresh every 60 seconds
     retry: 2,
     retryDelay: 5000,
+  });
+
+  // Discovery status - API call for real progress
+  const { data: discoveryStatus, isLoading: discoveryStatusLoading } = useQuery({
+    queryKey: ['discovery-status'],
+    queryFn: getDiscoveryStatus,
+    refetchInterval: backgroundDiscovery ? 2000 : false, // Poll every 2 seconds when discovery is running
+    retry: 2,
+    retryDelay: 1000,
+    enabled: backgroundDiscovery, // Only poll when discovery is active
+  });
+
+  // Analysis status - API call for real progress
+  const { data: analysisStatus, isLoading: analysisStatusLoading } = useQuery({
+    queryKey: ['analysis-status'],
+    queryFn: getAnalysisStatus,
+    refetchInterval: backgroundAnalysis ? 2000 : false, // Poll every 2 seconds when analysis is running
+    retry: 2,
+    retryDelay: 1000,
+    enabled: backgroundAnalysis, // Only poll when analysis is active
   });
 
   // Basic stats - API call
@@ -58,6 +82,7 @@ const Dashboard: React.FC = () => {
     onSuccess: () => {
       setError(null);
       setBackgroundDiscovery(true);
+      setIsTriggeringDiscovery(false); // Button is no longer being clicked
       // Invalidate queries to refresh data
       queryClient.invalidateQueries({ queryKey: ['health'] });
       queryClient.invalidateQueries({ queryKey: ['tracks-summary'] });
@@ -65,14 +90,17 @@ const Dashboard: React.FC = () => {
     },
     onError: (error: any) => {
       setError(`Discovery failed: ${error.response?.data?.detail || (error instanceof Error ? error.message : 'Unknown error')}`);
+      setBackgroundDiscovery(false);
+      setIsTriggeringDiscovery(false);
     },
   });
 
   const analysisMutation = useMutation({
-    mutationFn: () => analyzeBatches(false), // Don't include TensorFlow by default for speed
+    mutationFn: () => triggerAnalysis(false), // Don't include TensorFlow by default for speed
     onSuccess: () => {
       setError(null);
       setBackgroundAnalysis(true);
+      setIsAnalyzing(false); // Button is no longer being clicked
       // Invalidate queries to refresh data
       queryClient.invalidateQueries({ queryKey: ['health'] });
       queryClient.invalidateQueries({ queryKey: ['tracks-summary'] });
@@ -80,69 +108,50 @@ const Dashboard: React.FC = () => {
     },
     onError: (error: any) => {
       setError(`Analysis failed: ${error.response?.data?.detail || (error instanceof Error ? error.message : 'Unknown error')}`);
+      setBackgroundAnalysis(false);
+      setIsAnalyzing(false);
     },
   });
 
-  // Simulate discovery progress
+  // Update discovery progress from real API data
   useEffect(() => {
-    let interval: number;
-    if (isTriggeringDiscovery) {
-      setDiscoveryProgress(0);
-      interval = setInterval(() => {
-        setDiscoveryProgress(prev => {
-          if (prev >= 95) return prev; // Don't go to 100% until actually complete
-          return prev + Math.random() * 15;
-        });
-      }, 1000);
-    } else {
-      setDiscoveryProgress(0);
-    }
-    
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [isTriggeringDiscovery]);
-
-  // Simulate analysis progress
-  useEffect(() => {
-    let interval: number;
-    if (isAnalyzing) {
-      setAnalysisProgress(0);
-      interval = setInterval(() => {
-        setAnalysisProgress(prev => {
-          if (prev >= 95) return prev; // Don't go to 100% until actually complete
-          return prev + Math.random() * 10;
-        });
-      }, 1500);
-    } else {
-      setAnalysisProgress(0);
-    }
-    
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [isAnalyzing]);
-
-  // Monitor background processes and reset when complete
-  useEffect(() => {
-    if (backgroundDiscovery && tracksData && tracksData.total_count > 0) {
-      // Discovery likely completed when we have tracks
-      const timer = setTimeout(() => {
+    if (discoveryStatus?.discovery) {
+      const status = discoveryStatus.discovery;
+      setDiscoveryProgress(status.progress || 0);
+      setDiscoveryMessage(status.message || "");
+      setDiscoveryCount(status.discovered_count || 0);
+      
+      // Update background state based on status
+      if (status.status === "completed" || status.status === "failed") {
         setBackgroundDiscovery(false);
-      }, 5000); // Wait 5 seconds to ensure it's really done
-      return () => clearTimeout(timer);
+        setIsTriggeringDiscovery(false);
+        
+        // Refresh data after completion
+        queryClient.invalidateQueries({ queryKey: ['tracks-summary'] });
+        queryClient.invalidateQueries({ queryKey: ['recent-tracks'] });
+      }
     }
-  }, [backgroundDiscovery, tracksData]);
+  }, [discoveryStatus, queryClient]);
 
+  // Update analysis progress from real API data
   useEffect(() => {
-    if (backgroundAnalysis && basicStats && basicStats.analyzed_files > 0) {
-      // Analysis likely completed when we have analyzed files
-      const timer = setTimeout(() => {
+    if (analysisStatus?.analysis) {
+      const status = analysisStatus.analysis;
+      setAnalysisProgress(status.progress || 0);
+      setAnalysisMessage(status.message || "");
+      setAnalysisCount(status.completed_files || 0);
+      
+      // Update background state based on status
+      if (status.status === "completed" || status.status === "failed") {
         setBackgroundAnalysis(false);
-      }, 5000); // Wait 5 seconds to ensure it's really done
-      return () => clearTimeout(timer);
+        setIsAnalyzing(false);
+        
+        // Refresh data after completion
+        queryClient.invalidateQueries({ queryKey: ['tracks-summary'] });
+        queryClient.invalidateQueries({ queryKey: ['recent-tracks'] });
+      }
     }
-  }, [backgroundAnalysis, basicStats]);
+  }, [analysisStatus, queryClient]);
 
   const handleTriggerDiscovery = async () => {
     setIsTriggeringDiscovery(true);
@@ -203,7 +212,7 @@ const Dashboard: React.FC = () => {
       )}
 
       {/* Action Buttons */}
-      <div className="bg-white shadow rounded-lg p-6">
+      <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
         <div className="flex flex-wrap gap-4">
           <div className="relative">
             <button
@@ -216,7 +225,10 @@ const Dashboard: React.FC = () => {
               ) : (
                 <Search className="w-4 h-4 mr-2" />
               )}
-              {isTriggeringDiscovery ? 'Discovering...' : backgroundDiscovery ? 'Discovery in Progress...' : (isAnalyzing || backgroundAnalysis) ? 'Waiting for Analysis...' : 'Discover Files'}
+              {isTriggeringDiscovery ? 'Discovering...' : 
+               backgroundDiscovery ? (discoveryMessage || 'Discovery in Progress...') : 
+               (isAnalyzing || backgroundAnalysis) ? 'Waiting for Analysis...' : 
+               `Discover Files (${discoveryCount || 0} found)`}
             </button>
             
             {/* Progress indicator */}
@@ -241,7 +253,10 @@ const Dashboard: React.FC = () => {
               ) : (
                 <Play className="w-4 h-4 mr-2" />
               )}
-              {isAnalyzing ? 'Analyzing...' : backgroundAnalysis ? 'Analysis in Progress...' : (isTriggeringDiscovery || backgroundDiscovery) ? 'Waiting for Discovery...' : `Analyze Files (${pendingTracks})`}
+              {isAnalyzing ? 'Analyzing...' : 
+               backgroundAnalysis ? (analysisMessage || 'Analysis in Progress...') : 
+               (isTriggeringDiscovery || backgroundDiscovery) ? 'Waiting for Discovery...' : 
+               `Analyze Files (${analysisCount || 0}/${pendingTracks} done)`}
             </button>
             
             {/* Progress indicator */}
@@ -260,14 +275,14 @@ const Dashboard: React.FC = () => {
       {/* Statistics Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
         {/* Total Tracks */}
-        <div className="bg-white shadow rounded-lg p-6">
+        <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
           <div className="flex items-center">
             <div className="flex-shrink-0">
               <Music className="w-8 h-8 text-indigo-600" />
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Total Tracks</p>
-              <p className="text-2xl font-semibold text-gray-900">
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Tracks</p>
+              <p className="text-2xl font-semibold text-gray-900 dark:text-white">
                 {tracksLoading ? <LoadingSpinner size="sm" text="" /> : totalTracks}
               </p>
             </div>
@@ -275,14 +290,14 @@ const Dashboard: React.FC = () => {
         </div>
 
         {/* Analyzed Tracks */}
-        <div className="bg-white shadow rounded-lg p-6">
+        <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
           <div className="flex items-center">
             <div className="flex-shrink-0">
               <CheckCircle className="w-8 h-8 text-green-600" />
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Analyzed</p>
-              <p className="text-2xl font-semibold text-gray-900">
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Analyzed</p>
+              <p className="text-2xl font-semibold text-gray-900 dark:text-white">
                 {tracksLoading ? <LoadingSpinner size="sm" text="" /> : analyzedTracks}
               </p>
             </div>
@@ -290,14 +305,14 @@ const Dashboard: React.FC = () => {
         </div>
 
         {/* Pending Analysis */}
-        <div className="bg-white shadow rounded-lg p-6">
+        <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
           <div className="flex items-center">
             <div className="flex-shrink-0">
               <Clock className="w-8 h-8 text-yellow-600" />
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Pending</p>
-              <p className="text-2xl font-semibold text-gray-900">
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Pending</p>
+              <p className="text-2xl font-semibold text-gray-900 dark:text-white">
                 {tracksLoading ? <LoadingSpinner size="sm" text="" /> : pendingTracks}
               </p>
             </div>
@@ -305,14 +320,14 @@ const Dashboard: React.FC = () => {
         </div>
 
         {/* With Metadata */}
-        <div className="bg-white shadow rounded-lg p-6">
+        <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
           <div className="flex items-center">
             <div className="flex-shrink-0">
               <Database className="w-8 h-8 text-purple-600" />
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">With Metadata</p>
-              <p className="text-2xl font-semibold text-gray-900">
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">With Metadata</p>
+              <p className="text-2xl font-semibold text-gray-900 dark:text-white">
                 {tracksLoading ? <LoadingSpinner size="sm" text="" /> : tracksWithMetadata}
               </p>
             </div>
@@ -320,14 +335,14 @@ const Dashboard: React.FC = () => {
         </div>
 
         {/* Analysis Progress */}
-        <div className="bg-white shadow rounded-lg p-6">
+        <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
           <div className="flex items-center">
             <div className="flex-shrink-0">
               <BarChart3 className="w-8 h-8 text-blue-600" />
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Progress</p>
-              <p className="text-2xl font-semibold text-gray-900">
+              <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Progress</p>
+              <p className="text-2xl font-semibold text-gray-900 dark:text-white">
                 {tracksLoading ? (
                   <LoadingSpinner size="sm" text="" />
                 ) : totalTracks > 0 ? (
@@ -342,17 +357,17 @@ const Dashboard: React.FC = () => {
       </div>
 
       {/* System Status */}
-      <div className="bg-white shadow rounded-lg p-6">
-        <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">
+      <div className="bg-white dark:bg-gray-800 shadow rounded-lg p-6">
+        <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-white mb-4">
           System Status
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="p-3 bg-blue-50 rounded-lg">
+          <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
             <div className="flex items-center">
               <Database className="w-4 h-4 text-blue-500 mr-2" />
-              <span className="text-sm font-medium text-blue-900">Database</span>
+              <span className="text-sm font-medium text-blue-900 dark:text-blue-100">Database</span>
             </div>
-            <div className="mt-1 text-sm text-blue-700">
+            <div className="mt-1 text-sm text-blue-700 dark:text-blue-300">
               {healthLoading ? (
                 <LoadingSpinner size="sm" text="" />
               ) : (
@@ -361,12 +376,12 @@ const Dashboard: React.FC = () => {
             </div>
           </div>
 
-          <div className="p-3 bg-purple-50 rounded-lg">
+          <div className="p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
             <div className="flex items-center">
               <Activity className="w-4 h-4 text-purple-500 mr-2" />
-              <span className="text-sm font-medium text-purple-900">Essentia</span>
+              <span className="text-sm font-medium text-purple-900 dark:text-purple-100">Essentia</span>
             </div>
-            <div className="mt-1 text-sm text-purple-700">
+            <div className="mt-1 text-sm text-purple-700 dark:text-purple-300">
               {healthLoading ? (
                 <LoadingSpinner size="sm" text="" />
               ) : (
@@ -375,12 +390,12 @@ const Dashboard: React.FC = () => {
             </div>
           </div>
 
-          <div className="p-3 bg-green-50 rounded-lg">
+          <div className="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
             <div className="flex items-center">
               <Activity className="w-4 h-4 text-green-500 mr-2" />
-              <span className="text-sm font-medium text-green-900">TensorFlow</span>
+              <span className="text-sm font-medium text-green-900 dark:text-green-100">TensorFlow</span>
             </div>
-            <div className="mt-1 text-sm text-green-700">
+            <div className="mt-1 text-sm text-green-700 dark:text-green-300">
               {healthLoading ? (
                 <LoadingSpinner size="sm" text="" />
               ) : (
@@ -392,9 +407,9 @@ const Dashboard: React.FC = () => {
       </div>
 
       {/* Recent Tracks */}
-      <div className="bg-white shadow rounded-lg">
+      <div className="bg-white dark:bg-gray-800 shadow rounded-lg">
         <div className="px-3 py-2">
-          <h3 className="text-xs font-medium text-gray-900 mb-2">
+          <h3 className="text-xs font-medium text-gray-900 dark:text-white mb-2">
             Recent Tracks
           </h3>
           <div className="flow-root">
@@ -405,41 +420,41 @@ const Dashboard: React.FC = () => {
             ) : recentTracks && recentTracks.length > 0 ? (
               <div className="space-y-1">
                 {recentTracks.slice(0, 3).map((track: any) => (
-                  <div key={track.id} className="flex items-center justify-between py-1 px-2 bg-gray-50 rounded text-xs">
+                  <div key={track.id} className="flex items-center justify-between py-1 px-2 bg-gray-50 dark:bg-gray-700 rounded text-xs">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center space-x-1">
                         <Music className="w-2 h-2 text-gray-400 flex-shrink-0" />
-                        <span className="font-medium text-gray-900 truncate">
+                        <span className="font-medium text-gray-900 dark:text-white truncate">
                           {track.title || track.file_name}
                         </span>
                       </div>
                       <div className="flex items-center space-x-2 mt-0.5">
-                        <span className="text-gray-500">
+                        <span className="text-gray-500 dark:text-gray-400">
                           {track.artist || 'Unknown'}
                         </span>
                         {track.duration && (
-                          <span className="text-gray-400">
+                          <span className="text-gray-400 dark:text-gray-500">
                             {Math.floor(track.duration / 60)}:{String(Math.floor(track.duration % 60)).padStart(2, '0')}
                           </span>
                         )}
-                        <span className="text-gray-400">
+                        <span className="text-gray-400 dark:text-gray-500">
                           {track.file_extension?.toUpperCase()}
                         </span>
                       </div>
                     </div>
                     <div className="flex items-center space-x-1 ml-1">
                       {track.tempo && (
-                        <span className="px-1 py-0.5 rounded bg-blue-100 text-blue-700 text-xs">
+                        <span className="px-1 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs">
                           {Math.round(track.tempo)}
                         </span>
                       )}
                       <span
                         className={`px-1 py-0.5 rounded text-xs font-medium ${
                           track.status === 'analyzed' || track.status === 'faiss_analyzed'
-                            ? 'bg-green-100 text-green-700'
+                            ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
                             : track.status === 'has_metadata'
-                            ? 'bg-blue-100 text-blue-700'
-                            : 'bg-yellow-100 text-yellow-700'
+                            ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                            : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300'
                         }`}
                       >
                         {track.status === 'analyzed' || track.status === 'faiss_analyzed' ? '✓' : 
@@ -451,7 +466,7 @@ const Dashboard: React.FC = () => {
               </div>
             ) : (
               <div className="text-center py-2">
-                <p className="text-xs text-gray-500">No tracks</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">No tracks</p>
               </div>
             )}
           </div>

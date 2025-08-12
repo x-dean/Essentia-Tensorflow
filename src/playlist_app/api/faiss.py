@@ -15,6 +15,45 @@ from ..services.essentia_analyzer import essentia_analyzer
 
 router = APIRouter(prefix="/api/faiss", tags=["FAISS"])
 
+@router.get("/status")
+async def get_faiss_status(db: Session = Depends(get_db)) -> Dict[str, Any]:
+    """Get FAISS service status"""
+    try:
+        # Check if FAISS is available
+        try:
+            import faiss
+            faiss_available = True
+            faiss_version = faiss.__version__
+        except ImportError:
+            faiss_available = False
+            faiss_version = None
+        
+        # Check if index exists
+        index_exists = faiss_service.index_exists()
+        
+        # Get basic stats if index exists
+        stats = {}
+        if index_exists:
+            try:
+                stats = faiss_service.get_index_statistics(db)
+            except Exception:
+                stats = {"error": "Could not get statistics"}
+        
+        return {
+            "status": "operational" if faiss_available else "error",
+            "service": "faiss",
+            "faiss_available": faiss_available,
+            "faiss_version": faiss_version,
+            "index_exists": index_exists,
+            "statistics": stats
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "service": "faiss",
+            "error": str(e)
+        }
+
 @router.post("/build-index")
 async def build_index(
     include_tensorflow: bool = Query(True, description="Include MusiCNN features"),

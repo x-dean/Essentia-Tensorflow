@@ -10,14 +10,19 @@ from contextlib import asynccontextmanager
 from typing import Optional
 import threading
 import time
+import zipfile
+import tempfile
+import shutil
+from datetime import datetime
+from pathlib import Path
 
-from fastapi import FastAPI, BackgroundTasks
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, BackgroundTasks, File, UploadFile
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 # Import our application components
-from src.playlist_app.models.database import create_tables, SessionLocal
+from src.playlist_app.models.database import create_tables, SessionLocal, File
 from src.playlist_app.services.discovery import DiscoveryService
 from src.playlist_app.api.discovery import router as discovery_router
 from src.playlist_app.api.config import router as config_router
@@ -28,35 +33,72 @@ from src.playlist_app.api.faiss import router as faiss_router
 from src.playlist_app.core.config import DiscoveryConfig
 from src.playlist_app.core.logging import setup_logging, get_logger, log_performance
 
-# Setup logging
-setup_logging(
-    log_level=os.getenv("LOG_LEVEL", "INFO"),
-    log_file=os.getenv("LOG_FILE", None),
-    max_file_size=int(os.getenv("LOG_MAX_SIZE", "10485760")),  # 10MB
-    backup_count=int(os.getenv("LOG_BACKUP_COUNT", "5")),
-    enable_console=True,
-    enable_file=True,
-    structured_console=os.getenv("LOG_STRUCTURED_CONSOLE", "false").lower() == "true"
-)
+# Load configuration first
+from src.playlist_app.core.config_loader import config_loader
 
-# Suppress TensorFlow and Essentia logs using proper methods
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # Suppress INFO, WARNING, and ERROR logs
-os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"  # Disable oneDNN optimization messages
-os.environ["TF_GPU_ALLOCATOR"] = "cpu"  # Force CPU allocation
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # Disable GPU
-
-# Suppress Essentia logs
+# Setup logging with configuration
 try:
-    import essentia
-    essentia.log.infoActive = False      # Disable INFO messages
-    essentia.log.warningActive = False   # Disable WARNING messages
-    # Keep ERROR active for critical issues
-except ImportError:
-    pass
+    logging_config = config_loader.get_logging_config()
+    setup_logging(
+        log_level=logging_config.get("log_level", "INFO"),
+        log_file=os.getenv("LOG_FILE", None),
+        max_file_size=logging_config.get("max_file_size", 10485760),  # 10MB
+        backup_count=logging_config.get("max_backups", 5),
+        enable_console=True,
+        enable_file=True,
+        structured_console=os.getenv("LOG_STRUCTURED_CONSOLE", "false").lower() == "true"
+    )
+except Exception as e:
+    # Fallback to environment variables
+    setup_logging(
+        log_level=os.getenv("LOG_LEVEL", "INFO"),
+        log_file=os.getenv("LOG_FILE", None),
+        max_file_size=int(os.getenv("LOG_MAX_SIZE", "10485760")),  # 10MB
+        backup_count=int(os.getenv("LOG_BACKUP_COUNT", "5")),
+        enable_console=True,
+        enable_file=True,
+        structured_console=os.getenv("LOG_STRUCTURED_CONSOLE", "false").lower() == "true"
+    )
 
-# Suppress other library logs
-os.environ["LIBROSA_LOG_LEVEL"] = "WARNING"
-os.environ["PYTHONWARNINGS"] = "ignore"
+    # Apply log suppression based on configuration
+    try:
+        suppression_config = logging_config.get("suppression", {})
+        
+        # TensorFlow suppression
+        if suppression_config.get("tensorflow", True):
+            os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # Suppress INFO, WARNING, and ERROR logs
+        
+        # Essentia suppression
+        if suppression_config.get("essentia", True):
+            try:
+                import essentia
+                essentia.log.infoActive = False      # Disable INFO messages
+                essentia.log.warningActive = False   # Disable WARNING messages
+                # Keep ERROR active for critical issues
+            except ImportError:
+                pass
+        
+        # Librosa suppression
+        if suppression_config.get("librosa", True):
+            os.environ["LIBROSA_LOG_LEVEL"] = "WARNING"
+        
+        # Python warnings suppression
+        if suppression_config.get("pil", True):
+            os.environ["PYTHONWARNINGS"] = "ignore"
+            
+    except Exception as e:
+        # Fallback to hardcoded suppression
+        os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+        
+        try:
+            import essentia
+            essentia.log.infoActive = False
+            essentia.log.warningActive = False
+        except ImportError:
+            pass
+        
+        os.environ["LIBROSA_LOG_LEVEL"] = "WARNING"
+        os.environ["PYTHONWARNINGS"] = "ignore"
 
 # Also suppress via Python logging if not in debug mode
 if os.getenv("LOG_LEVEL", "INFO").upper() != "DEBUG":
@@ -69,10 +111,42 @@ if os.getenv("LOG_LEVEL", "INFO").upper() != "DEBUG":
 
 logger = get_logger(__name__)
 
-# Global variables for background discovery
-background_discovery_task: Optional[asyncio.Task] = None
-discovery_interval: int = int(os.getenv("DISCOVERY_INTERVAL", "3600"))  # Default: 1 hour
-background_discovery_enabled: bool = os.getenv("ENABLE_BACKGROUND_DISCOVERY", "false").lower() == "true"
+# Global variables for background tasks
+background_discovery_enabled = False
+background_discovery_task = None
+discovery_interval = 300  # 5 minutes - will be updated from config
+discovery_progress = {"status": "idle", "progress": 0, "message": ""}
+analysis_progress = {"status": "idle", "progress": 0, "message": "", "total_files": 0, "completed_files": 0}
+
+# Load saved configurations at module level
+def load_saved_configurations():
+    """Load saved configurations into global variables"""
+    global background_discovery_enabled, discovery_interval
+    
+    try:
+        logger.info("Loading saved configurations at module level...")
+        
+        # Load app settings
+        app_config = config_loader.get_app_settings()
+        
+        # Load discovery settings
+        discovery_config = app_config.get("discovery", {})
+        background_discovery_enabled = discovery_config.get("background_enabled", False)
+        discovery_interval = discovery_config.get("interval", 300)
+        
+        logger.info(f"Loaded discovery settings: background_enabled={background_discovery_enabled}, interval={discovery_interval}")
+        
+        # Load database settings
+        db_config = config_loader.get_database_config()
+        logger.info(f"Loaded database configuration: pool_size={db_config.get('pool_size', 25)}")
+        
+        logger.info("Configuration loading completed at module level")
+    except Exception as e:
+        logger.error(f"Failed to load saved configurations at module level: {e}")
+        logger.info("Using default configuration values")
+
+# Load configurations at module level
+load_saved_configurations()
 
 def initialize_database():
     """Initialize database tables"""
@@ -82,7 +156,21 @@ def initialize_database():
     
     # Wait for PostgreSQL to be ready (it's running in a separate container)
     logger.info("Waiting for PostgreSQL to be ready...")
-    max_retries = 30
+    
+    # Get retry settings from configuration
+    try:
+        db_config = config_loader.get_database_config()
+        retry_settings = db_config.get("retry_settings", {})
+        max_retries = retry_settings.get("max_retries", 30)
+        initial_delay = retry_settings.get("initial_delay", 2)
+        backoff_multiplier = retry_settings.get("backoff_multiplier", 1)
+    except Exception:
+        # Fallback to hardcoded values
+        max_retries = 30
+        initial_delay = 2
+        backoff_multiplier = 1
+    
+    delay = initial_delay
     for i in range(max_retries):
         try:
             # Test database connection
@@ -96,7 +184,8 @@ def initialize_database():
             if i == max_retries - 1:
                 raise Exception(f"PostgreSQL failed to connect within timeout: {e}")
             logger.info(f"Waiting for PostgreSQL... (attempt {i+1}/{max_retries})")
-            time.sleep(2)
+            time.sleep(delay)
+            delay = min(delay * backoff_multiplier, 30)  # Cap delay at 30 seconds
     
     # Create SQLAlchemy tables
     logger.info("Creating database tables...")
@@ -108,6 +197,36 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager"""
     # Startup
     logger.info("Starting Playlist App...")
+    logger.info("Lifespan function called - configuration loading will begin...")
+    
+    # Load saved configurations
+    try:
+        logger.info("Starting configuration loading process...")
+        
+        # Load app settings
+        app_config = config_loader.get_app_settings()
+        
+        # Load discovery settings
+        discovery_config = app_config.get("discovery", {})
+        global background_discovery_enabled, discovery_interval
+        
+        background_discovery_enabled = discovery_config.get("background_enabled", False)
+        discovery_interval = discovery_config.get("interval", 300)
+        
+        logger.info(f"Loaded discovery settings: background_enabled={background_discovery_enabled}, interval={discovery_interval}")
+        
+        # Load database settings
+        db_config = config_loader.get_database_config()
+        logger.info(f"Loaded database configuration: pool_size={db_config.get('pool_size', 25)}")
+        
+        # Load analysis settings
+        analysis_config = config_loader.get_analysis_config()
+        logger.info(f"Loaded analysis configuration: max_workers={analysis_config.get('performance', {}).get('parallel_processing', {}).get('max_workers', 8)}")
+        
+        logger.info("Configuration loading completed")
+    except Exception as e:
+        logger.error(f"Failed to load saved configurations: {e}")
+        logger.info("Using default configuration values")
     
     # Initialize database
     try:
@@ -171,18 +290,137 @@ async def start_background_discovery():
 
 def run_discovery_sync():
     """Synchronous wrapper for discovery (for background tasks)"""
+    global discovery_progress
     try:
+        discovery_progress = {"status": "running", "progress": 0, "message": "Starting discovery...", "discovered_count": 0}
+        
         db = SessionLocal()
         discovery_service = DiscoveryService(db)
         
+        # Update progress
+        discovery_progress = {"status": "running", "progress": 25, "message": "Scanning directories...", "discovered_count": 0}
+        
         results = discovery_service.discover_files()
+        
+        # Get current total count after discovery
+        total_count = db.query(File).filter(File.is_active == True).count()
+        
+        # Update progress to complete
+        discovery_progress = {"status": "completed", "progress": 100, "message": f"Discovery completed - Added: {len(results['added'])}, Removed: {len(results['removed'])}", "discovered_count": total_count}
         
         logger.info(f"Manual discovery completed - Added: {len(results['added'])}, Removed: {len(results['removed'])}, Unchanged: {len(results['unchanged'])}")
         
         db.close()
         return results
     except Exception as e:
+        discovery_progress = {"status": "failed", "progress": 0, "message": f"Discovery failed: {str(e)}", "discovered_count": 0}
         logger.error(f"Sync discovery failed: {e}", exc_info=True)
+        return None
+
+def run_analysis_sync(include_tensorflow=False, max_workers=None, max_files=None):
+    """Synchronous wrapper for analysis (for background tasks)"""
+    global analysis_progress
+    try:
+        analysis_progress = {"status": "running", "progress": 0, "message": "Starting analysis...", "total_files": 0, "completed_files": 0}
+        
+        # Get configuration
+        from src.playlist_app.core.analysis_config import analysis_config_loader
+        config = analysis_config_loader.get_config()
+        
+        # Use config value if max_workers not provided
+        if max_workers is None:
+            max_workers = config.parallel_processing.max_workers
+        
+        # Get all files that need analysis
+        db = SessionLocal()
+        from sqlalchemy import text
+        result = db.execute(text("SELECT file_path FROM files WHERE is_analyzed = false"))
+        all_files = [row[0] for row in result]
+        db.close()
+        
+        # Limit files if max_files is specified
+        if max_files and max_files > 0:
+            all_files = all_files[:max_files]
+            logger.info(f"Limited to {max_files} files for analysis")
+        
+        if not all_files:
+            analysis_progress = {"status": "completed", "progress": 100, "message": "No files need analysis", "total_files": 0, "completed_files": 0}
+            return {"message": "No files need analysis", "total_files": 0}
+        
+        total_files = len(all_files)
+        analysis_progress = {"status": "running", "progress": 10, "message": f"Preparing to analyze {total_files} files...", "total_files": total_files, "completed_files": 0}
+        
+        logger.info(f"Analyzing {total_files} files with {max_workers} workers")
+        
+        # Use multiprocessing for parallel analysis (CPU-bound tasks)
+        import multiprocessing as mp
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+        import time
+        import os
+        
+        # Use the module-level function for multiprocessing
+        from functools import partial
+        from src.playlist_app.api.analyzer import analyze_single_file_mp
+        analyze_func = partial(analyze_single_file_mp, include_tensorflow=include_tensorflow, force_reanalyze=False)
+        
+        # Process files in parallel using multiprocessing
+        start_time = time.time()
+        results = []
+        completed_count = 0
+        
+        # Use ProcessPoolExecutor for CPU-bound tasks
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all analysis tasks
+            future_to_file = {executor.submit(analyze_func, file_path): file_path 
+                            for file_path in all_files}
+            
+            # Collect results as they complete
+            for future in as_completed(future_to_file):
+                file_path = future_to_file[future]
+                try:
+                    result = future.result()
+                    results.append(result)
+                    completed_count += 1
+                    
+                    # Update progress
+                    progress = int((completed_count / total_files) * 80) + 10  # 10-90% range
+                    analysis_progress = {
+                        "status": "running", 
+                        "progress": progress, 
+                        "message": f"Analyzed {completed_count}/{total_files} files...", 
+                        "total_files": total_files, 
+                        "completed_files": completed_count
+                    }
+                    
+                    logger.info(f"Completed analysis for {file_path}")
+                except Exception as e:
+                    logger.error(f"Failed to analyze {file_path}: {e}")
+                    completed_count += 1
+                    results.append({"file_path": file_path, "status": "failed", "error": str(e)})
+        
+        # Update progress to complete
+        analysis_progress = {
+            "status": "completed", 
+            "progress": 100, 
+            "message": f"Analysis completed - {completed_count}/{total_files} files processed", 
+            "total_files": total_files, 
+            "completed_files": completed_count
+        }
+        
+        end_time = time.time()
+        logger.info(f"Analysis completed in {end_time - start_time:.2f} seconds")
+        
+        return {
+            "status": "success",
+            "total_files": total_files,
+            "completed_files": completed_count,
+            "results": results,
+            "duration": end_time - start_time
+        }
+        
+    except Exception as e:
+        analysis_progress = {"status": "failed", "progress": 0, "message": f"Analysis failed: {str(e)}", "total_files": 0, "completed_files": 0}
+        logger.error(f"Sync analysis failed: {e}", exc_info=True)
         return None
 
 # Create FastAPI application
@@ -264,6 +502,10 @@ async def health_check():
 async def trigger_discovery(background_tasks: BackgroundTasks):
     """Trigger discovery manually (on-demand)"""
     try:
+        # Reset progress
+        global discovery_progress
+        discovery_progress = {"status": "starting", "progress": 0, "message": "Initializing discovery...", "discovered_count": 0}
+        
         # Run discovery in background task to avoid blocking
         background_tasks.add_task(run_discovery_sync)
         
@@ -279,19 +521,442 @@ async def trigger_discovery(background_tasks: BackgroundTasks):
             content={"error": f"Failed to trigger discovery: {str(e)}"}
         )
 
+@app.get("/discovery/status")
+async def get_discovery_status():
+    """Get current discovery progress status"""
+    global discovery_progress
+    return {
+        "status": "success",
+        "discovery": discovery_progress
+    }
+
+@app.post("/analysis/trigger")
+async def trigger_analysis(
+    background_tasks: BackgroundTasks,
+    include_tensorflow: bool = False,
+    max_workers: Optional[int] = None,
+    max_files: Optional[int] = None
+):
+    """Trigger analysis manually (on-demand)"""
+    try:
+        # Reset progress
+        global analysis_progress
+        analysis_progress = {"status": "starting", "progress": 0, "message": "Initializing analysis...", "total_files": 0, "completed_files": 0}
+        
+        # Run analysis in background task to avoid blocking
+        background_tasks.add_task(run_analysis_sync, include_tensorflow, max_workers, max_files)
+        
+        return {
+            "status": "success",
+            "message": "Analysis triggered successfully",
+            "note": "Check logs for results or use /api/analyzer/statistics for statistics"
+        }
+    except Exception as e:
+        logger.error(f"Failed to trigger analysis: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to trigger analysis: {str(e)}"}
+        )
+
+@app.get("/analysis/status")
+async def get_analysis_status():
+    """Get current analysis progress status"""
+    global analysis_progress
+    return {
+        "status": "success",
+        "analysis": analysis_progress
+    }
+
 @app.get("/config")
 async def get_config():
     """Get current application configuration"""
-    return {
-        "database_url": os.getenv("DATABASE_URL", "not set"),
-        "search_directories": DiscoveryConfig.get_search_directories(),
-        "supported_extensions": DiscoveryConfig.get_supported_extensions(),
-        "background_discovery_enabled": background_discovery_enabled,
-        "discovery_interval": discovery_interval,
-        "log_level": os.getenv("LOG_LEVEL", "INFO"),
-        "cache_ttl": DiscoveryConfig.DISCOVERY_CACHE_TTL,
-        "batch_size": DiscoveryConfig.DISCOVERY_BATCH_SIZE
-    }
+    try:
+        # Get all configurations using config_loader
+        configs = {
+            "app_settings": config_loader.get_app_settings(),
+            "database": config_loader.get_database_config(),
+            "logging": config_loader.get_logging_config(),
+            "analysis_config": config_loader.get_analysis_config(),
+            "discovery": config_loader.get_discovery_config()
+        }
+        
+        # Get current runtime config
+        runtime_config = {
+            "database_url": os.getenv("DATABASE_URL", "not set"),
+            "search_directories": DiscoveryConfig.get_search_directories(),
+            "supported_extensions": DiscoveryConfig.get_supported_extensions(),
+            "background_discovery_enabled": background_discovery_enabled,
+            "discovery_interval": discovery_interval,
+            "log_level": os.getenv("LOG_LEVEL", "INFO"),
+            "cache_ttl": DiscoveryConfig.get_cache_ttl(),
+            "batch_size": DiscoveryConfig.get_batch_size()
+        }
+        
+        return {
+            "runtime": runtime_config,
+            "configs": configs
+        }
+    except Exception as e:
+        logger.error(f"Failed to get configuration: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to get configuration: {str(e)}"}
+        )
+
+@app.post("/config/update")
+async def update_config(request: dict):
+    """Update application configuration"""
+    try:
+        section = request.get("section")
+        data = request.get("data", {})
+        
+        if section == "general":
+            # Update general settings
+            global background_discovery_enabled, discovery_interval
+            
+            if "background_discovery_enabled" in data:
+                background_discovery_enabled = data["background_discovery_enabled"]
+            
+            if "discovery_interval" in data:
+                discovery_interval = data["discovery_interval"]
+            
+            if "log_level" in data:
+                os.environ["LOG_LEVEL"] = data["log_level"]
+            
+            if "cache_ttl" in data:
+                DiscoveryConfig.DISCOVERY_CACHE_TTL = data["cache_ttl"]
+            
+            if "api_host" in data:
+                os.environ["API_HOST"] = data["api_host"]
+            
+            if "api_port" in data:
+                os.environ["API_PORT"] = str(data["api_port"])
+            
+            if "python_path" in data:
+                os.environ["PYTHONPATH"] = data["python_path"]
+            
+            if "data_directory" in data:
+                os.environ["DATA_DIRECTORY"] = data["data_directory"]
+            
+            if "cache_directory" in data:
+                os.environ["CACHE_DIRECTORY"] = data["cache_directory"]
+            
+            if "logs_directory" in data:
+                os.environ["LOGS_DIRECTORY"] = data["logs_directory"]
+            
+            # Save to persistent storage
+            from src.playlist_app.core.config_manager import config_manager
+            config_manager.save_config("general", data)
+                
+        elif section == "discovery":
+            # Update discovery settings
+            if "search_directories" in data:
+                DiscoveryConfig.SEARCH_DIRECTORIES = data["search_directories"]
+            
+            if "supported_extensions" in data:
+                DiscoveryConfig.SUPPORTED_EXTENSIONS = data["supported_extensions"]
+            
+            if "batch_size" in data:
+                DiscoveryConfig.DISCOVERY_BATCH_SIZE = data["batch_size"]
+            
+            # Save to persistent storage
+            from src.playlist_app.core.config_manager import config_manager
+            config_manager.save_config("discovery", data)
+                              
+        elif section == "analysis":
+            # Update analysis configuration
+            logger.info("Starting analysis config update")
+            try:
+                from src.playlist_app.core.analysis_config import analysis_config_loader
+                logger.info("Imported analysis_config_loader")
+                config = analysis_config_loader.get_config()
+                logger.info(f"Got config, type: {type(config)}")
+                logger.info(f"Analysis config update - data keys: {list(data.keys())}")
+            except Exception as e:
+                logger.error(f"Error in analysis config update: {e}")
+                raise
+            
+            if "performance" in data:
+                if "parallel_processing" in data["performance"]:
+                    config.parallel_processing.max_workers = data["performance"]["parallel_processing"].get("max_workers", config.parallel_processing.max_workers)
+                    config.parallel_processing.chunk_size = data["performance"]["parallel_processing"].get("chunk_size", config.parallel_processing.chunk_size)
+                    config.parallel_processing.timeout_per_file = data["performance"]["parallel_processing"].get("timeout_per_file", config.parallel_processing.timeout_per_file)
+            
+            if "essentia" in data:
+                if "algorithms" in data["essentia"]:
+                    config.algorithms.enable_tensorflow = data["essentia"]["algorithms"].get("enable_tensorflow", config.algorithms.enable_tensorflow)
+                    config.algorithms.enable_complex_rhythm = data["essentia"]["algorithms"].get("enable_complex_rhythm", config.algorithms.enable_complex_rhythm)
+                    config.algorithms.enable_complex_harmonic = data["essentia"]["algorithms"].get("enable_complex_harmonic", config.algorithms.enable_complex_harmonic)
+                if "audio_processing" in data["essentia"]:
+                    for key, value in data["essentia"]["audio_processing"].items():
+                        if hasattr(config.audio_processing, key):
+                            setattr(config.audio_processing, key, value)
+                if "spectral_analysis" in data["essentia"]:
+                    for key, value in data["essentia"]["spectral_analysis"].items():
+                        if hasattr(config.spectral_analysis, key):
+                            setattr(config.spectral_analysis, key, value)
+                if "track_analysis" in data["essentia"]:
+                    for key, value in data["essentia"]["track_analysis"].items():
+                        if hasattr(config.track_analysis, key):
+                            setattr(config.track_analysis, key, value)
+            
+            # Save updated config to file
+            analysis_config_loader.save_config(config)
+            
+            # Save to persistent storage using config manager
+            from src.playlist_app.core.config_manager import config_manager
+            config_manager.save_config("analysis", data)
+            
+        elif section == "database":
+            # Update database settings
+            if "database_url" in data:
+                os.environ["DATABASE_URL"] = data["database_url"]
+            
+            # Note: Database connection pool settings would require restart to take effect
+            logger.info("Database settings updated - restart required for pool changes")
+            
+            # Save to persistent storage
+            from src.playlist_app.core.config_manager import config_manager
+            config_manager.save_config("database", data)
+        
+        elif section == "external":
+            # Update external APIs configuration
+            if "external_apis" in data:
+                # This would typically update a configuration file
+                # For now, we'll log the changes
+                logger.info(f"External APIs configuration updated: {data['external_apis']}")
+                
+                # In a real implementation, you would save this to a config file
+                # or update environment variables as needed
+            
+            # Save to persistent storage
+            from src.playlist_app.core.config_manager import config_manager
+            config_manager.save_config("external", data)
+        
+        elif section == "logging":
+            # Update logging configuration
+            if "log_level" in data:
+                os.environ["LOG_LEVEL"] = data["log_level"]
+                logger.info(f"Log level updated to: {data['log_level']}")
+            
+            if "log_file" in data:
+                os.environ["LOG_FILE"] = data["log_file"]
+                logger.info(f"Log file path updated to: {data['log_file']}")
+            
+            if "max_file_size" in data:
+                os.environ["LOG_MAX_SIZE"] = str(data["max_file_size"])
+                logger.info(f"Log max file size updated to: {data['max_file_size']}")
+            
+            if "max_backups" in data:
+                os.environ["LOG_BACKUP_COUNT"] = str(data["max_backups"])
+                logger.info(f"Log backup count updated to: {data['max_backups']}")
+            
+            # Save to persistent storage
+            from src.playlist_app.core.config_manager import config_manager
+            config_manager.save_config("logging", data)
+        
+        elif section == "performance":
+            # Update performance configuration
+            from src.playlist_app.core.analysis_config import analysis_config_loader
+            config = analysis_config_loader.get_config()
+            
+            if "performance" in data:
+                if "parallel_processing" in data["performance"]:
+                    config.parallel_processing.max_workers = data["performance"]["parallel_processing"].get("max_workers", config.parallel_processing.max_workers)
+                    config.parallel_processing.chunk_size = data["performance"]["parallel_processing"].get("chunk_size", config.parallel_processing.chunk_size)
+                    config.parallel_processing.timeout_per_file = data["performance"]["parallel_processing"].get("timeout_per_file", config.parallel_processing.timeout_per_file)
+            
+            if "essentia" in data:
+                if "algorithms" in data["essentia"]:
+                    config.algorithms.enable_tensorflow = data["essentia"]["algorithms"].get("enable_tensorflow", config.algorithms.enable_tensorflow)
+                    config.algorithms.enable_complex_rhythm = data["essentia"]["algorithms"].get("enable_complex_rhythm", config.algorithms.enable_complex_rhythm)
+                    config.algorithms.enable_complex_harmonic = data["essentia"]["algorithms"].get("enable_complex_harmonic", config.algorithms.enable_complex_harmonic)
+            
+            # Save updated config to file
+            analysis_config_loader.save_config(config)
+            logger.info("Performance configuration updated successfully")
+            
+            # Save to persistent storage
+            from src.playlist_app.core.config_manager import config_manager
+            config_manager.save_config("performance", data)
+        
+        return {
+            "status": "success",
+            "message": f"{section.capitalize()} configuration updated successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to update configuration: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to update configuration: {str(e)}"}
+        )
+
+@app.get("/config/backup")
+async def backup_configs():
+    """Create a backup of all configurations and return as downloadable file"""
+    try:
+        from src.playlist_app.core.config_manager import config_manager
+        import zipfile
+        import tempfile
+        import shutil
+        from fastapi.responses import FileResponse
+        
+        # Create backup directory in a persistent location
+        backup_base_dir = Path("/app/temp_backups")
+        backup_base_dir.mkdir(exist_ok=True)
+        
+        # Create timestamped backup directory
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_dir = backup_base_dir / f"config_backup_{timestamp}"
+        backup_dir.mkdir(exist_ok=True)
+        
+        # Create backup
+        success = config_manager.backup_configs(str(backup_dir))
+        
+        if not success:
+            return JSONResponse(
+                status_code=500,
+                content={"error": "Failed to create configuration backup"}
+            )
+        
+        # Create ZIP file
+        zip_path = backup_base_dir / f"config_backup_{timestamp}.zip"
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for file_path in backup_dir.rglob("*"):
+                if file_path.is_file():
+                    arcname = file_path.relative_to(backup_dir)
+                    zipf.write(file_path, arcname)
+        
+        # Clean up the backup directory (keep only the ZIP)
+        shutil.rmtree(backup_dir)
+        
+        # Return the ZIP file as a download
+        return FileResponse(
+            path=str(zip_path),
+            filename=f"config_backup_{timestamp}.zip",
+            media_type="application/zip"
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to backup configurations: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to backup configurations: {str(e)}"}
+        )
+
+@app.post("/config/restore")
+async def restore_configs(file: UploadFile = File()):
+    """Restore configurations from uploaded backup file"""
+    try:
+        from src.playlist_app.core.config_manager import config_manager
+        import zipfile
+        
+        # Check file type
+        if not file.filename.endswith('.zip'):
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Only ZIP files are supported for restore"}
+            )
+        
+        # Create temporary directory for extraction
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            zip_path = temp_path / "backup.zip"
+            
+            # Save uploaded file
+            with open(zip_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+            
+            # Extract ZIP file
+            extract_dir = temp_path / "extracted"
+            extract_dir.mkdir(exist_ok=True)
+            
+            with zipfile.ZipFile(zip_path, 'r') as zipf:
+                zipf.extractall(extract_dir)
+            
+            # Find the config backup directory
+            config_backup_dir = None
+            
+            # First, check if there's a config_backup subdirectory
+            for item in extract_dir.iterdir():
+                if item.is_dir() and item.name == "config_backup":
+                    config_backup_dir = item
+                    break
+            
+            # If no config_backup subdirectory, check if the extract_dir itself contains config files
+            if not config_backup_dir:
+                if any(extract_dir.glob("*.json")):
+                    config_backup_dir = extract_dir
+            
+            if not config_backup_dir:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "No valid configuration backup found in ZIP file"}
+                )
+            
+            # Restore configurations
+            success = config_manager.restore_configs(str(config_backup_dir))
+            
+            if success:
+                return {
+                    "status": "success",
+                    "message": "Configuration restored successfully"
+                }
+            else:
+                return JSONResponse(
+                    status_code=500,
+                    content={"error": "Failed to restore configuration"}
+                )
+                
+    except Exception as e:
+        logger.error(f"Failed to restore configurations: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to restore configurations: {str(e)}"}
+        )
+
+@app.get("/config/list")
+async def list_configs():
+    """List all available configuration files"""
+    try:
+        from src.playlist_app.core.config_manager import config_manager
+        configs = config_manager.list_configs()
+        
+        return {
+            "status": "success",
+            "configs": configs
+        }
+    except Exception as e:
+        logger.error(f"Failed to list configurations: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to list configurations: {str(e)}"}
+        )
+
+@app.delete("/config/{section}")
+async def delete_config(section: str):
+    """Delete a configuration section"""
+    try:
+        from src.playlist_app.core.config_manager import config_manager
+        success = config_manager.delete_config(section)
+        
+        if success:
+            return {
+                "status": "success",
+                "message": f"Configuration {section} deleted successfully"
+            }
+        else:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"Configuration {section} not found"}
+            )
+    except Exception as e:
+        logger.error(f"Failed to delete configuration {section}: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to delete configuration: {str(e)}"}
+        )
 
 @app.post("/discovery/background/toggle")
 async def toggle_background_discovery():

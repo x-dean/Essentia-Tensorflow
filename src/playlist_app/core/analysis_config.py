@@ -252,6 +252,7 @@ class AnalysisConfigLoader:
     
     def get_config(self) -> AnalysisConfig:
         """Get current configuration"""
+        logger.info(f"Getting config, type: {type(self._config)}")
         return self._config
     
     def reload_config(self):
@@ -270,33 +271,65 @@ class AnalysisConfigLoader:
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert configuration to dictionary"""
-        return {
-            "essentia": {
-                "audio_processing": self._config.audio_processing.__dict__,
-                "spectral_analysis": self._config.spectral_analysis.__dict__,
-                "track_analysis": self._config.track_analysis.__dict__,
-                "algorithms": self._config.algorithms.__dict__
-            },
-            "performance": {
-                "parallel_processing": self._config.parallel_processing.__dict__,
-                "caching": self._config.caching.__dict__,
-                "optimization": self._config.optimization.__dict__
-            },
-            "analysis_strategies": {
-                name: strategy.__dict__ for name, strategy in self._config.analysis_strategies.items()
-            },
-            "output": self._config.output.__dict__,
-            "quality": {
-                "min_confidence_threshold": self._config.quality.min_confidence_threshold,
-                "fallback_values": self._config.quality.fallback_values,
-                "error_handling": {
-                    "continue_on_error": self._config.quality.continue_on_error,
-                    "log_errors": self._config.quality.log_errors,
-                    "retry_failed": self._config.quality.retry_failed,
-                    "max_retries": self._config.quality.max_retries
+        try:
+            logger.info(f"Converting config to dict, config type: {type(self._config)}")
+            logger.info(f"Config attributes: {dir(self._config)}")
+            
+            return {
+                "essentia": {
+                    "audio_processing": self._config.audio_processing.__dict__,
+                    "spectral_analysis": self._config.spectral_analysis.__dict__,
+                    "track_analysis": self._config.track_analysis.__dict__,
+                    "algorithms": self._config.algorithms.__dict__
+                },
+                "performance": {
+                    "parallel_processing": self._config.parallel_processing.__dict__,
+                    "caching": self._config.caching.__dict__,
+                    "optimization": self._config.optimization.__dict__
+                },
+                "analysis_strategies": {
+                    name: strategy.__dict__ for name, strategy in self._config.analysis_strategies.items()
+                },
+                "output": self._config.output.__dict__,
+                "quality": {
+                    "min_confidence_threshold": self._config.quality.min_confidence_threshold,
+                    "fallback_values": self._config.quality.fallback_values,
+                    "error_handling": {
+                        "continue_on_error": self._config.quality.continue_on_error,
+                        "log_errors": self._config.quality.log_errors,
+                        "retry_failed": self._config.quality.retry_failed,
+                        "max_retries": self._config.quality.max_retries
+                    }
                 }
             }
-        }
+        except Exception as e:
+            logger.error(f"Error in to_dict: {e}")
+            raise
+    
+    def save_config(self, config: AnalysisConfig = None):
+        """Save configuration to file"""
+        try:
+            if config is not None:
+                self._config = config
+            
+            logger.info(f"About to save config, config type: {type(self._config)}")
+            logger.info(f"Config attributes: {dir(self._config)}")
+            
+            # Ensure config directory exists
+            config_dir = os.path.dirname(self.config_path)
+            if config_dir and not os.path.exists(config_dir):
+                os.makedirs(config_dir, exist_ok=True)
+            
+            # Convert to dictionary and save
+            config_dict = self.to_dict()
+            with open(self.config_path, 'w') as f:
+                json.dump(config_dict, f, indent=2)
+            
+            logger.info(f"Analysis configuration saved to {self.config_path}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save analysis configuration: {e}")
+            return False
 
 # Global configuration instance
 analysis_config_loader = AnalysisConfigLoader()

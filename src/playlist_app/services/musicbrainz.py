@@ -15,13 +15,46 @@ class MusicBrainzService:
     """Service for querying MusicBrainz API for genre information"""
     
     def __init__(self):
-        self.base_url = "https://musicbrainz.org/ws/2"
-        self.headers = {
-            'User-Agent': 'PlaylistApp/1.0 (dean@example.com)'
-        }
-        # Rate limiting: MusicBrainz allows 1 request per second
-        self.last_request_time = 0
-        self.min_request_interval = 1.0
+        # Load configuration
+        try:
+            from ..core.config_loader import config_loader
+            app_config = config_loader.get_app_settings()
+            mb_config = app_config.get("external_apis", {}).get("musicbrainz", {})
+            
+            self.base_url = "https://musicbrainz.org/ws/2"
+            self.headers = {
+                'User-Agent': mb_config.get("user_agent", "PlaylistApp/1.0 (dean@example.com)")
+            }
+            
+            # Rate limiting configuration
+            self.last_request_time = 0
+            self.min_request_interval = 1.0 / mb_config.get("rate_limit", 1.0)
+            self.timeout = mb_config.get("timeout", 10)
+            
+            # Retry configuration
+            self.retry_settings = mb_config.get("retry_settings", {
+                "max_retries": 3,
+                "backoff_factor": 2,
+                "max_backoff": 60
+            })
+            
+            # Cache configuration
+            self.cache_settings = mb_config.get("cache_settings", {
+                "enabled": True,
+                "ttl_seconds": 3600
+            })
+            
+        except Exception as e:
+            logger.warning(f"Failed to load MusicBrainz configuration: {e}, using defaults")
+            self.base_url = "https://musicbrainz.org/ws/2"
+            self.headers = {
+                'User-Agent': 'PlaylistApp/1.0 (dean@example.com)'
+            }
+            self.last_request_time = 0
+            self.min_request_interval = 1.0
+            self.timeout = 10
+            self.retry_settings = {"max_retries": 3, "backoff_factor": 2, "max_backoff": 60}
+            self.cache_settings = {"enabled": True, "ttl_seconds": 3600}
     
     def _rate_limit(self):
         """Ensure we don't exceed MusicBrainz rate limits"""
@@ -33,19 +66,37 @@ class MusicBrainzService:
         self.last_request_time = time.time()
     
     def _make_request(self, endpoint: str, params: Dict = None) -> Optional[Dict]:
-        """Make a request to MusicBrainz API with rate limiting"""
-        try:
-            self._rate_limit()
-            url = f"{self.base_url}/{endpoint}"
-            response = requests.get(url, headers=self.headers, params=params, timeout=10)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            logger.error(f"MusicBrainz API request failed: {e}")
-            return None
-        except Exception as e:
-            logger.error(f"Unexpected error in MusicBrainz request: {e}")
-            return None
+        """Make a request to MusicBrainz API with rate limiting and retry logic"""
+        max_retries = self.retry_settings.get("max_retries", 3)
+        backoff_factor = self.retry_settings.get("backoff_factor", 2)
+        max_backoff = self.retry_settings.get("max_backoff", 60)
+        
+        for attempt in range(max_retries):
+            try:
+                self._rate_limit()
+                url = f"{self.base_url}/{endpoint}"
+                response = requests.get(url, headers=self.headers, params=params, timeout=self.timeout)
+                response.raise_for_status()
+                return response.json()
+                
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"MusicBrainz API request failed (attempt {attempt + 1}/{max_retries}): {e}")
+                
+                if attempt < max_retries - 1:
+                    # Calculate backoff time
+                    backoff_time = min(backoff_factor ** attempt, max_backoff)
+                    logger.info(f"Retrying in {backoff_time} seconds...")
+                    time.sleep(backoff_time)
+                    continue
+                else:
+                    logger.error(f"MusicBrainz API request failed after {max_retries} attempts: {e}")
+                    return None
+                    
+            except Exception as e:
+                logger.error(f"Unexpected error in MusicBrainz request: {e}")
+                return None
+        
+        return None
     
     def search_track(self, artist: str, title: str, album: str = None) -> Optional[Dict]:
         """Search for a track by artist and title"""

@@ -1,6 +1,6 @@
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, Text, Float, BigInteger, ForeignKey, Enum
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship
+from sqlalchemy.orm import sessionmaker, relationship, Session
 from datetime import datetime
 import hashlib
 import os
@@ -246,7 +246,25 @@ class FAISSIndexMetadata(Base):
 
 # Database configuration
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://playlist_user:playlist_password@localhost:5432/playlist_db")
-engine = create_engine(DATABASE_URL)
+
+# Improved engine configuration for concurrent operations
+engine = create_engine(
+    DATABASE_URL,
+    # Connection pool settings for concurrent operations
+    pool_size=20,  # Increased from default 5
+    max_overflow=30,  # Allow overflow connections
+    pool_timeout=30,  # Timeout for getting connection
+    pool_recycle=3600,  # Recycle connections every hour
+    pool_pre_ping=True,  # Verify connections before use
+    # Transaction isolation
+    isolation_level="READ_COMMITTED",  # Better for concurrent access
+    # Connection settings
+    connect_args={
+        "connect_timeout": 10,
+        "application_name": "playlist_app"
+    }
+)
+
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def create_tables():
@@ -254,9 +272,24 @@ def create_tables():
     Base.metadata.create_all(bind=engine)
 
 def get_db():
-    """Get database session"""
+    """Get database session with proper error handling"""
     db = SessionLocal()
     try:
         yield db
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
+
+def get_db_session():
+    """Get a new database session for manual management"""
+    return SessionLocal()
+
+def close_db_session(db: Session):
+    """Safely close a database session"""
+    try:
+        db.close()
+    except Exception as e:
+        # Log but don't raise - session might already be closed
+        pass

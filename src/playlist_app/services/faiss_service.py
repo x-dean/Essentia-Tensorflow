@@ -29,8 +29,18 @@ class FAISSService:
     Handles vector storage, index building, similarity search, and persistence.
     """
     
-    def __init__(self, index_name: str = "music_library"):
-        self.index_name = index_name
+    def __init__(self, index_name: str = None):
+        # Get index name from configuration if not provided
+        if index_name is None:
+            try:
+                from ..core.config_loader import config_loader
+                app_config = config_loader.get_app_settings()
+                self.index_name = app_config.get("faiss", {}).get("index_name", "music_library")
+            except Exception:
+                self.index_name = "music_library"
+        else:
+            self.index_name = index_name
+            
         self.faiss_index = None
         self.vector_dimension = None
         self.track_paths = []
@@ -54,6 +64,23 @@ class FAISSService:
         
         try:
             start_time = time.time()
+            
+            # Load vector analysis configuration
+            try:
+                from ..core.analysis_config import analysis_config_loader
+                config = analysis_config_loader.get_config()
+                vector_config = config.get("vector_analysis", {})
+                index_type_config = vector_config.get("index_type", "IVFFlat")
+                nlist_config = vector_config.get("nlist", 100)
+                normalization_config = vector_config.get("normalization", {})
+                normalize_enabled = normalization_config.get("enabled", True)
+                normalize_method = normalization_config.get("method", "l2")
+            except Exception as e:
+                logger.warning(f"Failed to load vector analysis config: {e}, using defaults")
+                index_type_config = "IVFFlat"
+                nlist_config = 100
+                normalize_enabled = True
+                normalize_method = "l2"
             
             # Check if index already exists
             existing_metadata = db.query(FAISSIndexMetadata).filter(
@@ -89,6 +116,17 @@ class FAISSService:
                         include_tensorflow=include_tensorflow
                     )
                     
+                    # Apply normalization if enabled
+                    if normalize_enabled:
+                        if normalize_method == "l2":
+                            norm = np.linalg.norm(vector)
+                            if norm > 0:
+                                vector = vector / norm
+                        elif normalize_method == "l1":
+                            norm = np.sum(np.abs(vector))
+                            if norm > 0:
+                                vector = vector / norm
+                    
                     vectors.append(vector)
                     track_paths.append(file_record.file_path)
                     
@@ -100,7 +138,7 @@ class FAISSService:
                         vector_data=json.dumps(vector.tolist()),
                         vector_hash=vector_hash,
                         includes_tensorflow=include_tensorflow,
-                        is_normalized=True
+                        is_normalized=normalize_enabled
                     )
                     vector_records.append(vector_record)
                     
@@ -115,19 +153,19 @@ class FAISSService:
             self.vector_dimension = len(vectors[0])
             self.track_paths = track_paths
             
-            # Choose index type based on dataset size
+            # Choose index type based on configuration and dataset size
             num_vectors = len(vectors)
-            if num_vectors < 1000:
+            if index_type_config == "IndexFlatIP" or num_vectors < 1000:
                 index_type = "IndexFlatIP"
                 self.faiss_index = faiss.IndexFlatIP(self.vector_dimension)
-            elif num_vectors < 10000:
+            elif index_type_config == "IndexIVFFlat" or num_vectors < 10000:
                 index_type = "IndexIVFFlat"
-                nlist = min(100, num_vectors // 10)
+                nlist = min(nlist_config, num_vectors // 10)
                 quantizer = faiss.IndexFlatIP(self.vector_dimension)
                 self.faiss_index = faiss.IndexIVFFlat(quantizer, self.vector_dimension, nlist)
             else:
                 index_type = "IndexIVFPQ"
-                nlist = min(1000, num_vectors // 10)
+                nlist = min(nlist_config, num_vectors // 10)
                 m = 8
                 bits = 8
                 quantizer = faiss.IndexFlatIP(self.vector_dimension)
@@ -465,7 +503,23 @@ class FAISSService:
     
     def _compute_vector_hash(self, vector: np.ndarray) -> str:
         """Compute hash of vector for change detection"""
-        return hashlib.md5(vector.tobytes()).hexdigest()
+        try:
+            from ..core.analysis_config import analysis_config_loader
+            config = analysis_config_loader.get_config()
+            vector_config = config.get("vector_analysis", {})
+            hash_algorithm = vector_config.get("hash_algorithm", "md5")
+        except Exception:
+            hash_algorithm = "md5"
+        
+        if hash_algorithm == "md5":
+            return hashlib.md5(vector.tobytes()).hexdigest()
+        elif hash_algorithm == "sha1":
+            return hashlib.sha1(vector.tobytes()).hexdigest()
+        elif hash_algorithm == "sha256":
+            return hashlib.sha256(vector.tobytes()).hexdigest()
+        else:
+            # Default to MD5
+            return hashlib.md5(vector.tobytes()).hexdigest()
     
     def _fallback_similarity_search(self, db: Session, query_path: str, top_n: int) -> List[Tuple[str, float]]:
         """Fallback similarity search using database"""

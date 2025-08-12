@@ -12,13 +12,12 @@ router = APIRouter(prefix="/api/discovery", tags=["discovery"])
 
 def get_discovery_service(db: Session = Depends(get_db)) -> DiscoveryService:
     """Get discovery service instance"""
-    # Get search directories from environment or use defaults
-    search_dirs = os.getenv("SEARCH_DIRECTORIES", "/music,/audio").split(",")
-    search_dirs = [dir.strip() for dir in search_dirs if dir.strip()]
+    from ..core.config import DiscoveryConfig
     
     return DiscoveryService(
         db_session=db,
-        search_directories=search_dirs
+        search_directories=DiscoveryConfig.SEARCH_DIRECTORIES,
+        supported_extensions=DiscoveryConfig.get_supported_extensions()
     )
 
 @router.post("/scan")
@@ -77,6 +76,39 @@ async def get_file_by_hash(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get file: {str(e)}")
+
+@router.get("/status")
+async def get_discovery_status(discovery_service: DiscoveryService = Depends(get_discovery_service)):
+    """Get discovery service status"""
+    try:
+        db = discovery_service.db
+        
+        # Get basic stats
+        total_files = db.query(File).filter(File.is_active == True).count()
+        analyzed_files = db.query(File).filter(File.is_active == True, File.has_audio_analysis == True).count()
+        
+        # Check if discovery directories exist
+        from ..core.config import DiscoveryConfig
+        existing_dirs = []
+        for directory in DiscoveryConfig.SEARCH_DIRECTORIES:
+            if os.path.exists(directory):
+                existing_dirs.append(directory)
+        
+        return {
+            "status": "operational" if existing_dirs else "warning",
+            "service": "discovery",
+            "total_files": total_files,
+            "analyzed_files": analyzed_files,
+            "search_directories": DiscoveryConfig.get_search_directories(),
+            "existing_directories": existing_dirs,
+            "supported_extensions": DiscoveryConfig.get_supported_extensions()
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "service": "discovery",
+            "error": str(e)
+        }
 
 @router.get("/stats")
 async def get_discovery_stats(discovery_service: DiscoveryService = Depends(get_discovery_service)):
@@ -147,12 +179,26 @@ async def re_discover_all_files(discovery_service: DiscoveryService = Depends(ge
         raise HTTPException(status_code=500, detail=f"Re-discovery failed: {str(e)}")
 
 @router.get("/config")
-async def get_discovery_config(discovery_service: DiscoveryService = Depends(get_discovery_service)):
+async def get_discovery_config():
     """Get discovery configuration"""
-    return {
-        "status": "success",
-        "config": {
-            "search_directories": discovery_service.search_directories,
-            "supported_extensions": discovery_service.supported_extensions
+    try:
+        from ..core.config_loader import config_loader
+        from ..core.config import DiscoveryConfig
+        
+        # Get discovery configuration from config_loader
+        discovery_config = config_loader.get_discovery_config()
+        
+        # Return current configuration
+        return {
+            "status": "success",
+            "config": {
+                "search_directories": discovery_config.get("search_directories", DiscoveryConfig.get_search_directories()),
+                "supported_extensions": discovery_config.get("supported_extensions", DiscoveryConfig.get_supported_extensions()),
+                "batch_size": discovery_config.get("scan_settings", {}).get("batch_size", DiscoveryConfig.get_batch_size()),
+                "cache_settings": discovery_config.get("cache_settings", {}),
+                "scan_settings": discovery_config.get("scan_settings", {}),
+                "hash_settings": discovery_config.get("hash_settings", {})
+            }
         }
-    }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get discovery config: {str(e)}")

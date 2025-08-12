@@ -21,11 +21,40 @@ try:
 except ImportError:
     FAISS_AVAILABLE = False
 
-# Suppress TensorFlow and Essentia logs using proper methods
+# Apply TensorFlow optimizations based on configuration
+def apply_tensorflow_optimizations():
+    """Apply TensorFlow optimizations from configuration"""
+    try:
+        from ..core.analysis_config import analysis_config_loader
+        config = analysis_config_loader.get_config()
+        tf_config = config.get("performance", {}).get("tensorflow_optimizations", {})
+        
+        # Apply optimizations
+        if not tf_config.get("enable_onednn", False):
+            os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+        
+        os.environ["TF_GPU_ALLOCATOR"] = tf_config.get("gpu_allocator", "cpu")
+        os.environ["CUDA_VISIBLE_DEVICES"] = tf_config.get("cuda_visible_devices", "-1")
+        
+        # Memory growth
+        if tf_config.get("memory_growth", True):
+            os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
+        
+        # Mixed precision
+        if tf_config.get("mixed_precision", False):
+            os.environ["TF_ENABLE_AUTO_MIXED_PRECISION"] = "1"
+        
+    except Exception as e:
+        # Fallback to default settings
+        os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+        os.environ["TF_GPU_ALLOCATOR"] = "cpu"
+        os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+
+# Apply optimizations
+apply_tensorflow_optimizations()
+
+# Suppress TensorFlow logs
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # Suppress INFO, WARNING, and ERROR logs
-os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"  # Disable oneDNN optimization messages
-os.environ["TF_GPU_ALLOCATOR"] = "cpu"  # Force CPU allocation
-os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # Disable GPU
 
 # Suppress Essentia logs
 try:
@@ -73,16 +102,24 @@ def safe_float(value: Any) -> float:
     Returns:
         JSON-safe float value
     """
+    # Get fallback value from configuration
+    try:
+        from ..core.analysis_config import analysis_config_loader
+        config = analysis_config_loader.get_config()
+        fallback_value = config.get("quality", {}).get("fallback_values", {}).get("default_float", -999.0)
+    except Exception:
+        fallback_value = -999.0
+    
     if value is None:
-        return -999.0
+        return fallback_value
     
     try:
         float_val = float(value)
         if np.isnan(float_val) or np.isinf(float_val):
-            return -999.0
+            return fallback_value
         return float_val
     except (ValueError, TypeError):
-        return -999.0
+        return fallback_value
 
 def safe_json_serialize(obj: Any) -> Any:
     """
@@ -1105,11 +1142,23 @@ class EssentiaAnalyzer:
             try:
                 config = analysis_config_loader.get_config()
                 # Handle different possible configuration structures
-                if hasattr(config, 'essentia') and hasattr(config.essentia, 'algorithms'):
-                    enable_complex_rhythm = config.essentia.algorithms.enable_complex_rhythm
-                    enable_beat_tracking = config.essentia.algorithms.enable_beat_tracking
-                    enable_tempo_tap = config.essentia.algorithms.enable_tempo_tap
-                    enable_rhythm_extractor = config.essentia.algorithms.enable_rhythm_extractor
+                if hasattr(config, 'algorithms'):
+                    enable_complex_rhythm = config.algorithms.enable_complex_rhythm
+                    enable_beat_tracking = config.algorithms.enable_beat_tracking
+                    enable_tempo_tap = config.algorithms.enable_tempo_tap
+                    enable_rhythm_extractor = config.algorithms.enable_rhythm_extractor
+                elif hasattr(config, 'essentia') and hasattr(config.essentia, 'algorithms'):
+                    try:
+                        enable_complex_rhythm = config.essentia.algorithms.enable_complex_rhythm
+                        enable_beat_tracking = config.essentia.algorithms.enable_beat_tracking
+                        enable_tempo_tap = config.essentia.algorithms.enable_tempo_tap
+                        enable_rhythm_extractor = config.essentia.algorithms.enable_rhythm_extractor
+                    except AttributeError:
+                        # Fallback to defaults if essentia structure is invalid
+                        enable_complex_rhythm = True
+                        enable_beat_tracking = True
+                        enable_tempo_tap = True
+                        enable_rhythm_extractor = True
                 else:
                     # Default to enabled if config structure is different
                     enable_complex_rhythm = True
@@ -1291,10 +1340,20 @@ class EssentiaAnalyzer:
             try:
                 config = analysis_config_loader.get_config()
                 # Handle different possible configuration structures
-                if hasattr(config, 'essentia') and hasattr(config.essentia, 'algorithms'):
-                    enable_complex_harmonic = config.essentia.algorithms.enable_complex_harmonic
-                    enable_pitch_analysis = config.essentia.algorithms.enable_pitch_analysis
-                    enable_chord_detection = config.essentia.algorithms.enable_chord_detection
+                if hasattr(config, 'algorithms'):
+                    enable_complex_harmonic = config.algorithms.enable_complex_harmonic
+                    enable_pitch_analysis = config.algorithms.enable_pitch_analysis
+                    enable_chord_detection = config.algorithms.enable_chord_detection
+                elif hasattr(config, 'essentia') and hasattr(config.essentia, 'algorithms'):
+                    try:
+                        enable_complex_harmonic = config.essentia.algorithms.enable_complex_harmonic
+                        enable_pitch_analysis = config.essentia.algorithms.enable_pitch_analysis
+                        enable_chord_detection = config.essentia.algorithms.enable_chord_detection
+                    except AttributeError:
+                        # Fallback to defaults if essentia structure is invalid
+                        enable_complex_harmonic = True
+                        enable_pitch_analysis = True
+                        enable_chord_detection = True
                 else:
                     # Default to enabled if config structure is different
                     enable_complex_harmonic = True

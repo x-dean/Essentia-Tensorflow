@@ -4,11 +4,26 @@
     "port": 8000,
     "workers": 1,
     "reload": false,
+    "timeouts": {
+      "default": 60,
+      "analysis": 300,
+      "faiss": 300,
+      "discovery": 120
+    },
     "cors": {
       "enabled": true,
-      "origins": ["*"],
-      "methods": ["GET", "POST", "PUT", "DELETE"],
-      "headers": ["*"]
+      "origins": [
+        "*"
+      ],
+      "methods": [
+        "GET",
+        "POST",
+        "PUT",
+        "DELETE"
+      ],
+      "headers": [
+        "*"
+      ]
     }
   },
   "performance": {
@@ -22,7 +37,20 @@
   "discovery": {
     "background_enabled": false,
     "interval": 3600,
-    "auto_scan_on_startup": true
+    "auto_scan_on_startup": true,
+    "supported_extensions": [
+      ".mp3",
+      ".wav",
+      ".flac",
+      ".ogg",
+      ".m4a",
+      ".aac",
+      ".wma",
+      ".opus"
+    ],
+    "cache_ttl": 3600,
+    "batch_size": 100,
+    "hash_algorithm": "md5"
   },
   "paths": {
     "python_path": "/app/src",
@@ -30,27 +58,34 @@
     "cache_directory": "/app/cache",
     "logs_directory": "/app/logs"
   },
+  "faiss": {
+    "index_name": "music_library",
+    "vector_dimension": 128,
+    "similarity_threshold": 0.8
+  },
   "external_apis": {
-    "musicbrainz": {
-      "enabled": true,
-      "rate_limit": 1.0,
-      "timeout": 10,
-      "user_agent": "PlaylistApp/1.0 (dean@example.com)"
-    },
-    "lastfm": {
-      "enabled": true,
-      "api_key": "2b07c1e8a2d308a749760ab8d579baa8",
-      "base_url": "https://ws.audioscrobbler.com/2.0/",
-      "rate_limit": 0.5,
-      "timeout": 10
-    },
-    "discogs": {
-      "enabled": true,
-      "api_key": "fHtjqUtbbXdHMqMBqvblPvKpOCInINhDTUCHvgcS",
-      "base_url": "https://api.discogs.com/",
-      "rate_limit": 1.0,
-      "timeout": 10,
-      "user_agent": "PlaylistApp/1.0"
+    "external_apis": {
+      "musicbrainz": {
+        "enabled": true,
+        "rateLimit": 1,
+        "timeout": 10,
+        "userAgent": "PlaylistApp/1.0 (dean@example.com)"
+      },
+      "lastfm": {
+        "enabled": true,
+        "apiKey": "2b07c1e8a2d308a749760ab8d579baa8",
+        "baseUrl": "https://ws.audioscrobbler.com/2.0/",
+        "rateLimit": 1,
+        "timeout": 10
+      },
+      "discogs": {
+        "enabled": false,
+        "apiKey": "fHtjqUtbbXdHMqMBqvblPvKpOCInINhDTUCHvgcS",
+        "baseUrl": "https://api.discogs.com/",
+        "rateLimit": 1,
+        "timeout": 10,
+        "userAgent": "PlaylistApp/1.0"
+      }
     }
   }
 }

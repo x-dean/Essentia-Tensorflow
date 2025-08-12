@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List, Dict, Optional
 from pydantic import BaseModel
+from contextlib import contextmanager
 
 from ..models.database import get_db
 from ..services.analyzer_manager import analyzer_manager
@@ -17,21 +18,106 @@ def analyze_single_file_mp(file_path, include_tensorflow=False, force_reanalyze=
     try:
         # Import here to avoid issues with multiprocessing
         from src.playlist_app.services.audio_analysis_service import AudioAnalysisService
-        from src.playlist_app.models.database import SessionLocal
+        from src.playlist_app.models.database import create_engine, sessionmaker, Session
+        import os
         
-        # Create a new database session for each process
-        thread_db = SessionLocal()
-        try:
-            audio_service = AudioAnalysisService()
-            result = audio_service.analyze_file(thread_db, file_path, include_tensorflow, force_reanalyze=force_reanalyze)
-            return {"file_path": file_path, "status": "success", "result": result}
-        finally:
-            thread_db.close()
+        # Create a new database engine for this worker process
+        DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://playlist_user:playlist_password@localhost:5432/playlist_db")
+        
+        # Create isolated engine for this worker process
+        worker_engine = create_engine(
+            DATABASE_URL,
+            # Connection pool settings for worker processes
+            pool_size=5,  # Smaller pool for individual workers
+            max_overflow=10,  # Allow some overflow
+            pool_timeout=30,  # Timeout for getting connection
+            pool_recycle=1800,  # Recycle connections every 30 minutes
+            pool_pre_ping=True,  # Verify connections before use
+            # Transaction isolation
+            isolation_level="READ_COMMITTED",
+            # Connection settings
+            connect_args={
+                "connect_timeout": 10,
+                "application_name": f"playlist_app_worker_{os.getpid()}"
+            }
+        )
+        
+        # Create session factory for this worker
+        WorkerSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=worker_engine)
+        
+        # Create a new service instance with worker-specific session management
+        class WorkerAudioAnalysisService(AudioAnalysisService):
+            @contextmanager
+            def _get_db_session(self):
+                """Context manager for database sessions with proper error handling"""
+                db = WorkerSessionLocal()
+                try:
+                    yield db
+                except Exception:
+                    db.rollback()
+                    raise
+                finally:
+                    db.close()
+        
+        # Create a new service instance for each process
+        audio_service = WorkerAudioAnalysisService()
+        result = audio_service.analyze_file(file_path, include_tensorflow, force_reanalyze=force_reanalyze)
+        
+        # Clean up the engine
+        worker_engine.dispose()
+        
+        return {"file_path": file_path, "status": "success", "result": result}
     except Exception as e:
         logger.error(f"Failed to analyze {file_path}: {e}")
         return {"file_path": file_path, "status": "failed", "error": str(e)}
 
 router = APIRouter(prefix="/api/analyzer", tags=["analyzer"])
+
+@router.get("/status")
+async def get_analyzer_status():
+    """Get analyzer service status"""
+    try:
+        # Check if essential services are available
+        from ..services.audio_analysis_service import audio_analysis_service
+        from ..core.analysis_config import analysis_config_loader
+        
+        # Get analysis configuration
+        analysis_config = analysis_config_loader.get_analysis_config()
+        
+        # Check if TensorFlow is available
+        try:
+            import tensorflow as tf
+            tensorflow_available = True
+            tensorflow_version = tf.__version__
+        except ImportError:
+            tensorflow_available = False
+            tensorflow_version = None
+        
+        # Check if Essentia is available
+        try:
+            import essentia
+            essentia_available = True
+            essentia_version = essentia.__version__
+        except ImportError:
+            essentia_available = False
+            essentia_version = None
+        
+        return {
+            "status": "operational",
+            "service": "analyzer",
+            "tensorflow_available": tensorflow_available,
+            "tensorflow_version": tensorflow_version,
+            "essentia_available": essentia_available,
+            "essentia_version": essentia_version,
+            "analysis_config_loaded": bool(analysis_config),
+            "audio_service_available": audio_analysis_service is not None
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "service": "analyzer",
+            "error": str(e)
+        }
 
 class AnalyzeFileRequest(BaseModel):
     file_path: str
@@ -209,13 +295,11 @@ async def analyze_file(
 @router.post("/analyze-files")
 async def analyze_files(
     request: AnalyzeFilesRequest,
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db)
+    background_tasks: BackgroundTasks
 ):
     """Analyze multiple audio files using Essentia"""
     try:
         result = audio_analysis_service.analyze_files_batch(
-            db, 
             request.file_paths, 
             request.include_tensorflow
         )
@@ -227,10 +311,10 @@ async def analyze_files(
         raise HTTPException(status_code=500, detail=f"Batch analysis failed: {str(e)}")
 
 @router.get("/analysis/{file_path:path}")
-async def get_analysis(file_path: str, db: Session = Depends(get_db)):
+async def get_analysis(file_path: str):
     """Get analysis results for a file"""
     try:
-        result = audio_analysis_service.get_analysis(db, file_path)
+        result = audio_analysis_service.get_analysis(file_path)
         if not result:
             raise HTTPException(status_code=404, detail="Analysis not found")
         
@@ -244,10 +328,10 @@ async def get_analysis(file_path: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Failed to get analysis: {str(e)}")
 
 @router.get("/analysis-summary/{file_path:path}")
-async def get_analysis_summary(file_path: str, db: Session = Depends(get_db)):
+async def get_analysis_summary(file_path: str):
     """Get analysis summary for a file"""
     try:
-        result = audio_analysis_service.get_analysis_summary(db, file_path)
+        result = audio_analysis_service.get_analysis_summary(file_path)
         if not result:
             raise HTTPException(status_code=404, detail="Analysis not found")
         
@@ -262,12 +346,11 @@ async def get_analysis_summary(file_path: str, db: Session = Depends(get_db)):
 
 @router.get("/unanalyzed-files")
 async def get_unanalyzed_files(
-    limit: Optional[int] = Query(None, description="Maximum number of files to return"),
-    db: Session = Depends(get_db)
+    limit: Optional[int] = Query(None, description="Maximum number of files to return")
 ):
     """Get list of files that haven't been analyzed yet"""
     try:
-        files = audio_analysis_service.get_unanalyzed_files(db, limit)
+        files = audio_analysis_service.get_unanalyzed_files(limit)
         return {
             "status": "success",
             "files": files,
@@ -277,10 +360,10 @@ async def get_unanalyzed_files(
         raise HTTPException(status_code=500, detail=f"Failed to get unanalyzed files: {str(e)}")
 
 @router.get("/statistics")
-async def get_analysis_statistics(db: Session = Depends(get_db)):
+async def get_analysis_statistics():
     """Get analysis statistics"""
     try:
-        stats = audio_analysis_service.get_analysis_statistics(db)
+        stats = audio_analysis_service.get_analysis_statistics()
         return {
             "status": "success",
             "statistics": stats
@@ -374,10 +457,10 @@ async def force_reanalyze(
         raise HTTPException(status_code=500, detail=f"Force re-analysis failed: {str(e)}")
 
 @router.delete("/analysis/{file_path:path}")
-async def delete_analysis(file_path: str, db: Session = Depends(get_db)):
+async def delete_analysis(file_path: str):
     """Delete analysis results for a file"""
     try:
-        success = audio_analysis_service.delete_analysis(db, file_path)
+        success = audio_analysis_service.delete_analysis(file_path)
         if not success:
             raise HTTPException(status_code=404, detail="Analysis not found")
         
@@ -391,16 +474,85 @@ async def delete_analysis(file_path: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Failed to delete analysis: {str(e)}")
 
 @router.get("/config")
-async def get_analysis_config():
-    """Get current analysis configuration"""
+async def get_analyzer_config():
+    """Get current analyzer configuration"""
     try:
         config = analysis_config_loader.get_config()
         return {
             "status": "success",
-            "config": analysis_config_loader.to_dict()
+            "config": {
+                "performance": {
+                    "parallel_processing": {
+                        "max_workers": config.parallel_processing.max_workers,
+                        "chunk_size": config.parallel_processing.chunk_size,
+                        "timeout_per_file": config.parallel_processing.timeout_per_file,
+                        "memory_limit_mb": config.parallel_processing.memory_limit_mb
+                    },
+                    "caching": {
+                        "enable_cache": config.caching.enable_cache,
+                        "cache_duration_hours": config.caching.cache_duration_hours,
+                        "max_cache_size_mb": config.caching.max_cache_size_mb
+                    },
+                    "optimization": {
+                        "use_ffmpeg_streaming": config.optimization.use_ffmpeg_streaming,
+                        "smart_segmentation": config.optimization.smart_segmentation,
+                        "skip_existing_analysis": config.optimization.skip_existing_analysis,
+                        "batch_size": config.optimization.batch_size
+                    }
+                },
+                "essentia": {
+                    "audio_processing": {
+                        "sample_rate": config.audio_processing.sample_rate,
+                        "channels": config.audio_processing.channels,
+                        "frame_size": config.audio_processing.frame_size,
+                        "hop_size": config.audio_processing.hop_size,
+                        "window_type": config.audio_processing.window_type,
+                        "zero_padding": config.audio_processing.zero_padding
+                    },
+                    "spectral_analysis": {
+                        "min_frequency": config.spectral_analysis.min_frequency,
+                        "max_frequency": config.spectral_analysis.max_frequency,
+                        "n_mels": config.spectral_analysis.n_mels,
+                        "n_mfcc": config.spectral_analysis.n_mfcc,
+                        "n_spectral_peaks": config.spectral_analysis.n_spectral_peaks,
+                        "silence_threshold": config.spectral_analysis.silence_threshold
+                    },
+                    "track_analysis": {
+                        "min_track_length": config.track_analysis.min_track_length,
+                        "max_track_length": config.track_analysis.max_track_length,
+                        "chunk_duration": config.track_analysis.chunk_duration,
+                        "overlap_ratio": config.track_analysis.overlap_ratio
+                    },
+                    "algorithms": {
+                        "enable_tensorflow": config.algorithms.enable_tensorflow,
+                        "enable_complex_rhythm": config.algorithms.enable_complex_rhythm,
+                        "enable_complex_harmonic": config.algorithms.enable_complex_harmonic,
+                        "enable_beat_tracking": config.algorithms.enable_beat_tracking,
+                        "enable_tempo_tap": config.algorithms.enable_tempo_tap,
+                        "enable_rhythm_extractor": config.algorithms.enable_rhythm_extractor,
+                        "enable_pitch_analysis": config.algorithms.enable_pitch_analysis,
+                        "enable_chord_detection": config.algorithms.enable_chord_detection
+                    }
+                },
+                "output": {
+                    "store_individual_columns": config.output.store_individual_columns,
+                    "store_complete_json": config.output.store_complete_json,
+                    "compress_json": config.output.compress_json,
+                    "include_segment_details": config.output.include_segment_details,
+                    "include_processing_metadata": config.output.include_processing_metadata
+                },
+                "quality": {
+                    "min_confidence_threshold": config.quality.min_confidence_threshold,
+                    "fallback_values": config.quality.fallback_values,
+                    "continue_on_error": config.quality.continue_on_error,
+                    "log_errors": config.quality.log_errors,
+                    "retry_failed": config.quality.retry_failed,
+                    "max_retries": config.quality.max_retries
+                }
+            }
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get analyzer config: {str(e)}")
 
 @router.post("/config/reload")
 async def reload_analysis_config():
@@ -452,13 +604,12 @@ async def get_essentia_config():
 
 @router.post("/faiss/build-index")
 async def build_faiss_index(
-    db: Session = Depends(get_db),
     include_tensorflow: bool = True,
     force_rebuild: bool = False
 ):
-    """Build FAISS index from analyzed tracks in database"""
+    """Build FAISS index from analyzed tracks"""
     try:
-        result = audio_analysis_service.build_faiss_index(db, include_tensorflow, force_rebuild)
+        result = audio_analysis_service.build_faiss_index(include_tensorflow, force_rebuild)
         return {
             "status": "success",
             "result": result
@@ -466,35 +617,27 @@ async def build_faiss_index(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to build FAISS index: {str(e)}")
 
-@router.get("/faiss/similar/{file_path:path}")
-async def find_similar_tracks(
+@router.post("/faiss/search")
+async def search_similar_tracks(
     file_path: str,
-    top_n: int = Query(5, ge=1, le=50, description="Number of similar tracks to return"),
-    db: Session = Depends(get_db)
+    top_n: int = 5
 ):
-    """Find similar tracks using FAISS index"""
+    """Search for similar tracks using FAISS index"""
     try:
-        similar_tracks = audio_analysis_service.find_similar_tracks(db, file_path, top_n)
+        similar_tracks = audio_analysis_service.find_similar_tracks(file_path, top_n)
         return {
             "status": "success",
             "query_file": file_path,
-            "similar_tracks": [
-                {
-                    "file_path": track_path,
-                    "similarity_score": float(similarity)
-                }
-                for track_path, similarity in similar_tracks
-            ],
-            "count": len(similar_tracks)
+            "similar_tracks": similar_tracks
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to find similar tracks: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to search similar tracks: {str(e)}")
 
 @router.get("/faiss/statistics")
-async def get_faiss_statistics(db: Session = Depends(get_db)):
+async def get_faiss_statistics():
     """Get FAISS index statistics"""
     try:
-        stats = audio_analysis_service.get_faiss_statistics(db)
+        stats = audio_analysis_service.get_faiss_statistics()
         return {
             "status": "success",
             "statistics": stats
@@ -502,14 +645,13 @@ async def get_faiss_statistics(db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get FAISS statistics: {str(e)}")
 
-@router.post("/faiss/rebuild")
+@router.post("/faiss/rebuild-index")
 async def rebuild_faiss_index(
-    db: Session = Depends(get_db),
     include_tensorflow: bool = True
 ):
     """Force rebuild FAISS index"""
     try:
-        result = audio_analysis_service.build_faiss_index(db, include_tensorflow, force_rebuild=True)
+        result = audio_analysis_service.build_faiss_index(include_tensorflow, force_rebuild=True)
         return {
             "status": "success",
             "result": result
