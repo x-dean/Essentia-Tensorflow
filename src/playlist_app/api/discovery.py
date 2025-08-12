@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from typing import List, Dict, Optional
 import os
 
-from ..models.database import get_db, create_tables
+from ..models.database import get_db, create_tables, File, DiscoveryCache, FileStatus
 from ..services.discovery import DiscoveryService
+from ..core.logging import get_logger
 
 router = APIRouter(prefix="/api/discovery", tags=["discovery"])
 
@@ -80,15 +82,17 @@ async def get_file_by_hash(
 async def get_discovery_stats(discovery_service: DiscoveryService = Depends(get_discovery_service)):
     """Get discovery statistics"""
     try:
-        from ..models.database import File
-        
         db = discovery_service.db
         
         # Get total files
         total_files = db.query(File).filter(File.is_active == True).count()
         
         # Get analyzed files
-        analyzed_files = db.query(File).filter(File.is_active == True, File.is_analyzed == True).count()
+        analyzed_files = db.query(File).filter(File.is_active == True, File.has_audio_analysis == True).count()
+        
+        # Get status distribution
+        status_counts = db.query(File.status, func.count(File.id)).group_by(File.status).all()
+        status_stats = {status.value if status else "unknown": count for status, count in status_counts}
         
         # Get files by extension
         extension_stats = {}
@@ -103,6 +107,7 @@ async def get_discovery_stats(discovery_service: DiscoveryService = Depends(get_
                 "total_files": total_files,
                 "analyzed_files": analyzed_files,
                 "unanalyzed_files": total_files - analyzed_files,
+                "status_distribution": status_stats,
                 "extension_distribution": extension_stats
             }
         }

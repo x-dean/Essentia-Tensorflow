@@ -1,11 +1,20 @@
-from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, Text, Float, BigInteger, ForeignKey
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, Boolean, Text, Float, BigInteger, ForeignKey, Enum
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
 import hashlib
 import os
+import enum
 
 Base = declarative_base()
+
+class FileStatus(enum.Enum):
+    """File processing status enumeration"""
+    DISCOVERED = "discovered"
+    HAS_METADATA = "has_metadata"
+    ANALYZED = "analyzed"
+    FAISS_ANALYZED = "faiss_analyzed"
+    FAILED = "failed"
 
 class File(Base):
     """Model for discovered audio files"""
@@ -19,7 +28,10 @@ class File(Base):
     file_extension = Column(String, nullable=False)
     discovered_at = Column(DateTime, default=datetime.utcnow)
     last_modified = Column(DateTime, default=datetime.utcnow)
+    status = Column(Enum(FileStatus), default=FileStatus.DISCOVERED, index=True)
     is_analyzed = Column(Boolean, default=False)
+    has_metadata = Column(Boolean, default=False)
+    has_audio_analysis = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
     
     # Relationships

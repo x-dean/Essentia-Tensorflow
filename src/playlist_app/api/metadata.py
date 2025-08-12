@@ -193,7 +193,7 @@ async def get_metadata_stats(db: Session = Depends(get_db)):
         total_files = db.query(File).count()
         
         # Get analyzed files
-        analyzed_files = db.query(File).filter(File.is_analyzed == True).count()
+        analyzed_files = db.query(File).filter(File.has_metadata == True).count()
         
         # Get files with metadata
         files_with_metadata = db.query(AudioMetadata).count()

@@ -14,9 +14,10 @@ from mutagen.wave import WAVE
 from sqlalchemy.orm import Session
 from datetime import datetime
 
-from ..models.database import File, AudioMetadata
+from ..models.database import File, AudioMetadata, get_db, FileStatus
 from ..core.config_loader import config_loader
 from .genre_enrichment import genre_enrichment_manager
+from ..core.logging import get_logger
 
 logger = logging.getLogger(__name__)
 
@@ -203,6 +204,14 @@ class AudioMetadataAnalyzer:
             
         except Exception as e:
             logger.error(f"Error analyzing {file_path}: {str(e)}")
+            # Mark file as failed
+            try:
+                file_record = db.query(File).filter(File.file_path == str(file_path)).first()
+                if file_record:
+                    file_record.status = FileStatus.FAILED
+                    db.commit()
+            except Exception as db_error:
+                logger.error(f"Failed to update file status to FAILED: {db_error}")
             return None
     
     def _extract_mp3_metadata(self, file_path: Path) -> Dict[str, Any]:
@@ -627,7 +636,8 @@ class AudioMetadataAnalyzer:
                     raise
             
             # Mark file as analyzed
-            file_record.is_analyzed = True
+            file_record.has_metadata = True
+            file_record.status = FileStatus.HAS_METADATA
             file_record.last_modified = datetime.utcnow()
             
             db.commit()

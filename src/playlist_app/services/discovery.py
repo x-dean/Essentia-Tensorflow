@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import List, Dict, Set, Tuple
 from datetime import datetime
 from sqlalchemy.orm import Session
-from ..models.database import File, DiscoveryCache, get_db
+from ..models.database import File, DiscoveryCache, get_db, FileStatus
 from ..core.config import DiscoveryConfig
 from ..core.logging import get_logger
 from .metadata import audio_metadata_analyzer
@@ -194,7 +194,8 @@ class DiscoveryService:
                 file_extension=file_info["file_extension"],
                 last_modified=file_info["last_modified"],
                 is_analyzed=False,
-                is_active=True
+                is_active=True,
+                status=FileStatus.DISCOVERED
             )
             
             self.db.add(new_file)

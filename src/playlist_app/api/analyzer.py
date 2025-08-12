@@ -45,7 +45,7 @@ class AnalyzeFilesRequest(BaseModel):
 async def categorize_files(db: Session = Depends(get_db)):
     """Categorize files by length"""
     try:
-        categories = analyzer_manager.categorize_files_by_length(db, include_analyzed=True)
+        categories = analyzer_manager.categorize_files_by_length(db, include_analyzed=False)
         return {
             "status": "success",
             "categories": categories,

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 import numpy as np
 
-from ..models.database import File, AudioAnalysis, VectorIndex, FAISSIndexMetadata
+from ..models.database import File, AudioAnalysis, VectorIndex, FAISSIndexMetadata, FileStatus
 from .essentia_analyzer import essentia_analyzer, safe_json_serialize
 
 # FAISS for efficient vector similarity search
@@ -67,7 +67,7 @@ class FAISSService:
             
             # Get all analyzed files
             analyzed_files = db.query(File).join(AudioAnalysis).filter(
-                File.is_analyzed == True,
+                File.has_audio_analysis == True,
                 File.is_active == True
             ).all()
             
@@ -289,6 +289,10 @@ class FAISSService:
             )
             
             db.add(vector_record)
+            
+            # Update file status to FAISS_ANALYZED
+            file_record.status = FileStatus.FAISS_ANALYZED
+            
             db.commit()
             
             logger.info(f"Added track {file_path} to FAISS index")
@@ -394,7 +398,7 @@ class FAISSService:
             
             # Get file statistics
             total_files = db.query(File).count()
-            analyzed_files = db.query(File).filter(File.is_analyzed == True).count()
+            analyzed_files = db.query(File).filter(File.has_audio_analysis == True).count()
             indexed_files = db.query(File).join(VectorIndex).count()
             
             stats = {

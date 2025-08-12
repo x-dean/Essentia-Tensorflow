@@ -5,8 +5,10 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 import time
 
-from ..models.database import File, AudioAnalysis, AudioMetadata
-from .essentia_analyzer import essentia_analyzer, EssentiaConfig, safe_json_serialize
+from sqlalchemy.orm import Session
+from ..models.database import File, AudioAnalysis, AudioMetadata, get_db, FileStatus
+from ..core.logging import get_logger
+from .essentia_analyzer import essentia_analyzer, safe_json_serialize, EssentiaConfig
 from .faiss_service import faiss_service
 
 logger = logging.getLogger(__name__)
@@ -69,7 +71,9 @@ class AudioAnalysisService:
             analysis_record = self._store_analysis_in_db(db, file_record.id, analysis_results)
             
             # Mark file as analyzed
+            file_record.has_audio_analysis = True
             file_record.is_analyzed = True
+            file_record.status = FileStatus.ANALYZED
             db.commit()
             
             # Add to FAISS index for similarity search
@@ -87,6 +91,14 @@ class AudioAnalysisService:
             
         except Exception as e:
             logger.error(f"Analysis failed for {file_path}: {e}")
+            # Mark file as failed
+            try:
+                file_record = db.query(File).filter(File.file_path == file_path).first()
+                if file_record:
+                    file_record.status = FileStatus.FAILED
+                    db.commit()
+            except Exception as db_error:
+                logger.error(f"Failed to update file status to FAILED: {db_error}")
             db.rollback()
             raise
     
@@ -221,7 +233,7 @@ class AudioAnalysisService:
         """
         try:
             total_files = db.query(File).count()
-            analyzed_files = db.query(File).filter(File.is_analyzed == True).count()
+            analyzed_files = db.query(File).filter(File.has_audio_analysis == True).count()
             unanalyzed_files = total_files - analyzed_files
             
             # Get analysis duration statistics
