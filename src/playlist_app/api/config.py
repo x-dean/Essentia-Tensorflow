@@ -1,7 +1,13 @@
-from fastapi import APIRouter, HTTPException, UploadFile
-from typing import Dict, Any, List, Optional
+import os
 import json
+import tempfile
+import zipfile
+import shutil
+from datetime import datetime
 from pathlib import Path
+from typing import Dict, Any, List, Optional
+from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi.responses import FileResponse, JSONResponse
 
 from ..core.config_loader import config_loader
 from ..core.config_validator import config_validator
@@ -14,23 +20,45 @@ async def get_available_configs() -> Dict[str, Any]:
     """Get list of available configuration files"""
     try:
         configs = config_loader.list_available_configs()
+        has_consolidated = config_loader.consolidated_config_file.exists()
+        
         return {
             "status": "success",
             "available_configs": configs,
-            "config_directory": str(config_loader.config_dir)
+            "config_directory": str(config_loader.config_dir),
+            "has_consolidated_config": has_consolidated,
+            "consolidated_config_file": str(config_loader.consolidated_config_file)
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error listing configs: {str(e)}")
+
+@router.get("/consolidated")
+async def get_consolidated_config() -> Dict[str, Any]:
+    """Get the consolidated configuration file"""
+    try:
+        if not config_loader.consolidated_config_file.exists():
+            raise HTTPException(status_code=404, detail="Consolidated config file not found")
+        
+        config = config_loader.load_consolidated_config()
+        return {
+            "status": "success",
+            "config": config,
+            "source": "consolidated"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading consolidated config: {str(e)}")
 
 @router.get("/discovery")
 async def get_discovery_config() -> Dict[str, Any]:
     """Get discovery configuration"""
     try:
         config = config_loader.get_discovery_config()
+        source = "consolidated" if config_loader.consolidated_config_file.exists() else "file"
+        
         return {
             "status": "success",
             "config": config,
-            "source": "file" if config_loader.load_config("discovery") else "environment"
+            "source": source
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error loading discovery config: {str(e)}")
@@ -40,10 +68,12 @@ async def get_database_config() -> Dict[str, Any]:
     """Get database configuration"""
     try:
         config = config_loader.get_database_config()
+        source = "consolidated" if config_loader.consolidated_config_file.exists() else "file"
+        
         return {
             "status": "success",
             "config": config,
-            "source": "file" if config_loader.load_config("database") else "environment"
+            "source": source
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error loading database config: {str(e)}")
@@ -53,10 +83,12 @@ async def get_logging_config() -> Dict[str, Any]:
     """Get logging configuration"""
     try:
         config = config_loader.get_logging_config()
+        source = "consolidated" if config_loader.consolidated_config_file.exists() else "file"
+        
         return {
             "status": "success",
             "config": config,
-            "source": "file" if config_loader.load_config("logging") else "environment"
+            "source": source
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error loading logging config: {str(e)}")
@@ -66,13 +98,176 @@ async def get_app_settings() -> Dict[str, Any]:
     """Get application settings"""
     try:
         config = config_loader.get_app_settings()
+        source = "consolidated" if config_loader.consolidated_config_file.exists() else "file"
+        
         return {
             "status": "success",
             "config": config,
-            "source": "file" if config_loader.load_config("app_settings") else "environment"
+            "source": source
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error loading app settings: {str(e)}")
+
+@router.get("/analysis")
+async def get_analysis_config() -> Dict[str, Any]:
+    """Get analysis configuration"""
+    try:
+        from ..core.analysis_config import analysis_config_loader
+        config = analysis_config_loader.get_config()
+        
+        return {
+            "status": "success",
+            "config": {
+                "essentia": {
+                    "algorithms": {
+                        "enable_tensorflow": config.algorithms.enable_tensorflow,
+                        "enable_faiss": config.algorithms.enable_faiss,
+                        "enable_complex_rhythm": config.algorithms.enable_complex_rhythm,
+                        "enable_complex_harmonic": config.algorithms.enable_complex_harmonic,
+                        "enable_beat_tracking": config.algorithms.enable_beat_tracking,
+                        "enable_tempo_tap": config.algorithms.enable_tempo_tap,
+                        "enable_rhythm_extractor": config.algorithms.enable_rhythm_extractor,
+                        "enable_pitch_analysis": config.algorithms.enable_pitch_analysis,
+                        "enable_chord_detection": config.algorithms.enable_chord_detection
+                    },
+                    "audio_processing": {
+                        "sample_rate": config.audio_processing.sample_rate,
+                        "channels": config.audio_processing.channels,
+                        "frame_size": config.audio_processing.frame_size,
+                        "hop_size": config.audio_processing.hop_size,
+                        "window_type": config.audio_processing.window_type,
+                        "zero_padding": config.audio_processing.zero_padding
+                    },
+                    "spectral_analysis": {
+                        "min_frequency": config.spectral_analysis.min_frequency,
+                        "max_frequency": config.spectral_analysis.max_frequency,
+                        "n_mels": config.spectral_analysis.n_mels,
+                        "n_mfcc": config.spectral_analysis.n_mfcc,
+                        "n_spectral_peaks": config.spectral_analysis.n_spectral_peaks,
+                        "silence_threshold": config.spectral_analysis.silence_threshold
+                    },
+                    "track_analysis": {
+                        "min_track_length": config.track_analysis.min_track_length,
+                        "max_track_length": config.track_analysis.max_track_length,
+                        "chunk_duration": config.track_analysis.chunk_duration,
+                        "overlap_ratio": config.track_analysis.overlap_ratio
+                    }
+                },
+                "performance": {
+                    "parallel_processing": {
+                        "max_workers": config.parallel_processing.max_workers,
+                        "chunk_size": config.parallel_processing.chunk_size,
+                        "timeout_per_file": config.parallel_processing.timeout_per_file,
+                        "memory_limit_mb": config.parallel_processing.memory_limit_mb
+                    },
+                    "caching": {
+                        "enable_cache": config.caching.enable_cache,
+                        "cache_duration_hours": config.caching.cache_duration_hours,
+                        "max_cache_size_mb": config.caching.max_cache_size_mb
+                    },
+                    "optimization": {
+                        "use_ffmpeg_streaming": config.optimization.use_ffmpeg_streaming,
+                        "smart_segmentation": config.optimization.smart_segmentation,
+                        "skip_existing_analysis": config.optimization.skip_existing_analysis,
+                        "batch_size": config.optimization.batch_size
+                    }
+                }
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading analysis config: {str(e)}")
+
+@router.post("/analysis/update")
+async def update_analysis_config(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Update analysis configuration"""
+    try:
+        from ..core.analysis_config import analysis_config_loader
+        
+        # Update the configuration
+        config = analysis_config_loader.get_config()
+        
+        # Update algorithms section
+        if "essentia" in data and "algorithms" in data["essentia"]:
+            algorithms = data["essentia"]["algorithms"]
+            for key, value in algorithms.items():
+                if hasattr(config.algorithms, key):
+                    setattr(config.algorithms, key, value)
+        
+        # Update audio processing section
+        if "essentia" in data and "audio_processing" in data["essentia"]:
+            audio_processing = data["essentia"]["audio_processing"]
+            for key, value in audio_processing.items():
+                if hasattr(config.audio_processing, key):
+                    setattr(config.audio_processing, key, value)
+        
+        # Update performance section
+        if "performance" in data and "parallel_processing" in data["performance"]:
+            parallel_processing = data["performance"]["parallel_processing"]
+            for key, value in parallel_processing.items():
+                if hasattr(config.parallel_processing, key):
+                    setattr(config.parallel_processing, key, value)
+        
+        # Update quality section
+        if "quality" in data:
+            quality = data["quality"]
+            if "min_confidence_threshold" in quality:
+                config.quality.min_confidence_threshold = quality["min_confidence_threshold"]
+            if "fallback_values" in quality:
+                for key, value in quality["fallback_values"].items():
+                    if key in config.quality.fallback_values:
+                        config.quality.fallback_values[key] = value
+        
+        # Save the updated configuration
+        analysis_config_loader.save_config(config)
+        
+        return {
+            "status": "success",
+            "message": "Analysis configuration updated successfully"
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error updating analysis config: {str(e)}")
+
+@router.post("/analysis/toggle-tensorflow")
+async def toggle_tensorflow(data: Dict[str, bool]) -> Dict[str, Any]:
+    """Toggle TensorFlow enable/disable"""
+    try:
+        from ..core.analysis_config import analysis_config_loader
+        
+        enabled = data.get("enabled", False)
+        config = analysis_config_loader.get_config()
+        config.algorithms.enable_tensorflow = enabled
+        
+        # Save the updated configuration
+        analysis_config_loader.save_config(config)
+        
+        return {
+            "status": "success",
+            "message": f"TensorFlow {'enabled' if enabled else 'disabled'} successfully",
+            "tensorflow_enabled": enabled
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error toggling TensorFlow: {str(e)}")
+
+@router.post("/analysis/toggle-faiss")
+async def toggle_faiss(data: Dict[str, bool]) -> Dict[str, Any]:
+    """Toggle FAISS enable/disable"""
+    try:
+        from ..core.analysis_config import analysis_config_loader
+        
+        enabled = data.get("enabled", False)
+        config = analysis_config_loader.get_config()
+        config.algorithms.enable_faiss = enabled
+        
+        # Save the updated configuration
+        analysis_config_loader.save_config(config)
+        
+        return {
+            "status": "success",
+            "message": f"FAISS {'enabled' if enabled else 'disabled'} successfully",
+            "faiss_enabled": enabled
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error toggling FAISS: {str(e)}")
 
 @router.get("/api-timeouts")
 async def get_api_timeouts() -> Dict[str, Any]:
@@ -81,7 +276,7 @@ async def get_api_timeouts() -> Dict[str, Any]:
         config = config_loader.get_app_settings()
         timeouts = config.get("api", {}).get("timeouts", {
             "default": 60,
-            "analysis": 300,
+            "analysis": 600,  # Increased from 300 to 600 seconds (10 minutes)
             "faiss": 300,
             "discovery": 120
         })
@@ -92,36 +287,25 @@ async def get_api_timeouts() -> Dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error loading API timeouts: {str(e)}")
 
-@router.get("/analysis")
-async def get_analysis_config() -> Dict[str, Any]:
-    """Get analysis configuration"""
-    try:
-        config = config_loader.get_analysis_config()
-        return {
-            "status": "success",
-            "config": config
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error loading analysis config: {str(e)}")
-
 @router.get("/all")
 async def get_all_configs() -> Dict[str, Any]:
     """Get all configurations"""
     try:
+        configs = {
+            "discovery": config_loader.get_discovery_config(),
+            "database": config_loader.get_database_config(),
+            "logging": config_loader.get_logging_config(),
+            "app_settings": config_loader.get_app_settings(),
+            "analysis_config": config_loader.get_analysis_config()
+        }
+        
+        source = "consolidated" if config_loader.consolidated_config_file.exists() else "individual"
+        
         return {
             "status": "success",
-            "configs": {
-                "discovery": config_loader.get_discovery_config(),
-                "database": config_loader.get_database_config(),
-                "logging": config_loader.get_logging_config(),
-                "app_settings": config_loader.get_app_settings()
-            },
-            "sources": {
-                "discovery": "file" if config_loader.load_config("discovery") else "environment",
-                "database": "file" if config_loader.load_config("database") else "environment",
-                "logging": "file" if config_loader.load_config("logging") else "environment",
-                "app_settings": "file" if config_loader.load_config("app_settings") else "environment"
-            }
+            "configs": configs,
+            "source": source,
+            "has_consolidated_config": config_loader.consolidated_config_file.exists()
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error loading all configs: {str(e)}")
@@ -140,9 +324,14 @@ async def update_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
         success = config_loader.update_config(section, data)
         
         if success:
+            # Reload configurations to apply changes
+            config_loader.reload_config()
+            
+            source = "consolidated" if config_loader.consolidated_config_file.exists() else "individual"
             return {
                 "status": "success",
-                "message": f"Configuration {section} updated successfully"
+                "message": f"Configuration {section} updated successfully",
+                "source": source
             }
         else:
             raise HTTPException(status_code=500, detail=f"Failed to update configuration {section}")
@@ -150,32 +339,131 @@ async def update_config(config_data: Dict[str, Any]) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"Error updating config: {str(e)}")
 
 @router.post("/backup")
-async def backup_configs() -> Dict[str, Any]:
-    """Backup all configurations"""
+async def backup_configs():
+    """Backup all configurations and return as downloadable ZIP file"""
     try:
+        import zipfile
+        import tempfile
+        import shutil
+        from fastapi.responses import FileResponse
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        
+        # Create backup directory in a persistent location
+        backup_base_dir = Path("/app/temp_backups")
+        backup_base_dir.mkdir(exist_ok=True)
+        logger.info(f"Created backup base directory: {backup_base_dir}")
+        
+        # Create timestamped backup directory
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_dir = backup_base_dir / f"config_backup_{timestamp}"
+        backup_dir.mkdir(exist_ok=True)
+        logger.info(f"Created backup directory: {backup_dir}")
+        
+        # Create backup using config_loader
         backup_path = config_loader.create_backup()
-        return {
-            "status": "success",
-            "message": "Configuration backup created successfully",
-            "backup_path": str(backup_path)
-        }
+        logger.info(f"Config loader backup created at: {backup_path}")
+        
+        # Create ZIP file directly from the backup path
+        zip_path = backup_base_dir / f"config_backup_{timestamp}.zip"
+        logger.info(f"Creating ZIP file at: {zip_path}")
+        
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for file_path in backup_path.rglob("*"):
+                if file_path.is_file():
+                    arcname = file_path.relative_to(backup_path)
+                    zipf.write(file_path, arcname)
+                    logger.info(f"Added to ZIP: {arcname}")
+        
+        logger.info(f"ZIP file created successfully, size: {zip_path.stat().st_size} bytes")
+        
+        # Clean up the backup directory (keep only the ZIP)
+        shutil.rmtree(backup_dir)
+        logger.info("Cleaned up backup directory")
+        
+        # Return the ZIP file as a download
+        return FileResponse(
+            path=str(zip_path),
+            filename=f"config_backup_{timestamp}.zip",
+            media_type="application/zip",
+            headers={"Content-Disposition": f"attachment; filename=config_backup_{timestamp}.zip"}
+        )
+        
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error creating backup: {str(e)}")
+        logger.error(f"Failed to backup configurations: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to backup configurations: {str(e)}"}
+        )
 
 @router.post("/restore")
 async def restore_configs(file: UploadFile) -> Dict[str, Any]:
-    """Restore configurations from backup"""
+    """Restore configurations from backup ZIP file"""
     try:
-        success = config_loader.restore_backup(file.file)
-        if success:
-            return {
-                "status": "success",
-                "message": "Configuration restored successfully"
-            }
-        else:
-            raise HTTPException(status_code=500, detail="Failed to restore configuration")
+        # Check file type
+        if not file.filename.endswith('.zip'):
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Only ZIP files are supported for restore"}
+            )
+        
+        # Create temporary directory for extraction
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            zip_path = temp_path / "backup.zip"
+            
+            # Save uploaded file
+            with open(zip_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+            
+            # Extract ZIP file
+            extract_dir = temp_path / "extracted"
+            extract_dir.mkdir(exist_ok=True)
+            
+            with zipfile.ZipFile(zip_path, 'r') as zipf:
+                zipf.extractall(extract_dir)
+            
+            # Find the config backup directory
+            config_backup_dir = None
+            
+            # First, check if there's a config_backup subdirectory
+            for item in extract_dir.iterdir():
+                if item.is_dir() and item.name.startswith("config_backup"):
+                    config_backup_dir = item
+                    break
+            
+            # If no config_backup subdirectory, check if the extract_dir itself contains config files
+            if not config_backup_dir:
+                if any(extract_dir.glob("*.json")):
+                    config_backup_dir = extract_dir
+            
+            if not config_backup_dir:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "No valid configuration backup found in ZIP file"}
+                )
+            
+            # Restore configurations using config_manager
+            from ..core.config_manager import config_manager
+            success = config_manager.restore_configs(str(config_backup_dir))
+            
+            if success:
+                return {
+                    "status": "success",
+                    "message": "Configuration restored successfully"
+                }
+            else:
+                return JSONResponse(
+                    status_code=500,
+                    content={"error": "Failed to restore configuration"}
+                )
+                
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error restoring config: {str(e)}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to restore configurations: {str(e)}"}
+        )
 
 @router.get("/list")
 async def list_configs() -> Dict[str, Any]:

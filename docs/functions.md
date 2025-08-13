@@ -4,7 +4,7 @@
 
 This document describes the core functions and capabilities of the Playlist App, focusing on file discovery and metadata extraction with genre enrichment.
 
-## 🎵 File Discovery System
+##  File Discovery System
 
 ### Core Discovery Functions
 
@@ -64,7 +64,7 @@ This document describes the core functions and capabilities of the Playlist App,
 }
 ```
 
-## 🎼 Metadata Extraction System
+##  Metadata Extraction System
 
 ### Core Metadata Functions
 
@@ -113,7 +113,7 @@ This document describes the core functions and capabilities of the Playlist App,
 - **ReplayGain**: string → float
 - **Bitrate/Sample Rate**: string → int
 
-## 🎯 Genre Enrichment System
+##  Genre Enrichment System
 
 ### Multi-API Genre Detection
 
@@ -190,7 +190,7 @@ This document describes the core functions and capabilities of the Playlist App,
 }
 ```
 
-## 🖥️ CLI Commands
+## ️ CLI Commands
 
 ### Discovery Commands
 
@@ -252,7 +252,7 @@ python playlist_cli.py enrich-genres [--limit N] [--format table|json]
 - Lists files with missing/generic genres
 - Shows which files need genre enrichment
 
-## 🔧 API Endpoints
+##  API Endpoints
 
 ### Discovery Endpoints
 
@@ -282,7 +282,7 @@ python playlist_cli.py enrich-genres [--limit N] [--format table|json]
 #### `GET /api/metadata/stats/overview`
 - Returns metadata statistics
 
-## 📊 Database Schema
+##  Database Schema
 
 ### File Table
 ```sql
@@ -341,7 +341,7 @@ CREATE TABLE audio_metadata (
 );
 ```
 
-## 🚀 Usage Examples
+##  Usage Examples
 
 ### Initial Setup
 ```bash
@@ -386,7 +386,7 @@ curl "http://localhost:8000/api/metadata/search?artist=Coldplay&year=2020"
 curl "http://localhost:8000/api/metadata/123"
 ```
 
-## 🔍 Error Handling
+##  Error Handling
 
 ### Discovery Errors
 - **File not found**: Logged and skipped
@@ -406,7 +406,7 @@ curl "http://localhost:8000/api/metadata/123"
 - **Invalid API keys**: Service disabled, others continue
 - **Network errors**: Graceful degradation
 
-## 📈 Performance Considerations
+##  Performance Considerations
 
 ### Discovery Performance
 - **Hash calculation**: SHA-256 for duplicate detection
@@ -423,7 +423,7 @@ curl "http://localhost:8000/api/metadata/123"
 - **Rate limiting**: Respects API limits to avoid blocking
 - **Parallel processing**: Multiple services can be tried concurrently
 
-## 🔧 Configuration Files
+##  Configuration Files
 
 ### Discovery Configuration
 - **File**: `config/discovery.json`
@@ -437,7 +437,7 @@ curl "http://localhost:8000/api/metadata/123"
 - **File**: `docker-compose.yml`
 - **Purpose**: Container orchestration and networking
 
-## 📝 Logging
+##  Logging
 
 ### Log Levels
 - **INFO**: Normal operations, successful discoveries

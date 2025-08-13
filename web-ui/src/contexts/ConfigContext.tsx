@@ -84,7 +84,7 @@ export const ConfigProvider: React.FC<{ children: ReactNode }> = ({ children }) 
 
   // Update configuration mutation
   const updateConfigMutation = useMutation({
-    mutationFn: updateConfig,
+    mutationFn: ({ section, data }: { section: string; data: any }) => updateConfig(section, data),
     onSuccess: async (_, variables) => {
       // Reload configs on backend
       try {

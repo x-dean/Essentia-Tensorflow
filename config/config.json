@@ -1,0 +1,168 @@
+{
+  "app_settings": {
+    "api": {
+      "host": "0.0.0.0",
+      "port": 8000,
+      "workers": 1,
+      "reload": true,
+      "timeouts": {
+        "default": 60,
+        "analysis": 600,
+        "faiss": 300,
+        "discovery": 120
+      },
+      "cors": {
+        "enabled": true,
+        "origins": [
+          "*"
+        ],
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "headers": [
+          "*"
+        ]
+      }
+    },
+    "performance": {
+      "max_concurrent_requests": 100,
+      "request_timeout": 30,
+      "background_tasks": {
+        "enabled": true,
+        "max_workers": 4
+      }
+    },
+    "discovery": {
+      "background_enabled": false,
+      "interval": 3600,
+      "auto_scan_on_startup": true,
+      "supported_extensions": [
+        ".mp3",
+        ".wav",
+        ".flac",
+        ".ogg",
+        ".m4a",
+        ".aac",
+        ".wma",
+        ".opus"
+      ],
+      "cache_ttl": 3600,
+      "batch_size": 100,
+      "hash_algorithm": "md5"
+    },
+    "paths": {
+      "python_path": "/app/src",
+      "data_directory": "/app/data",
+      "cache_directory": "/app/cache",
+      "logs_directory": "/app/logs"
+    },
+    "faiss": {
+      "index_name": "music_library",
+      "vector_dimension": 128,
+      "similarity_threshold": 0.8
+    },
+    "external_apis": {
+      "musicbrainz": {
+        "enabled": true,
+        "rateLimit": 1,
+        "timeout": 1,
+        "userAgent": "PlaylistApp/1.0 (dean@example.com)"
+      },
+      "lastfm": {
+        "enabled": true,
+        "apiKey": "2b07c1e8a2d308a749760ab8d579baa8",
+        "baseUrl": "https://ws.audioscrobbler.com/2.0/",
+        "rateLimit": 1,
+        "timeout": 10
+      },
+      "discogs": {
+        "enabled": true,
+        "apiKey": "fHtjqUtbbXdHMqMBqvblPvKpOCInINhDTUCHvgcS",
+        "baseUrl": "https://api.discogs.com/",
+        "rateLimit": 1,
+        "timeout": 10,
+        "userAgent": "PlaylistApp/1.0"
+      }
+    }
+  },
+  "analysis_config": {
+    "performance": {
+      "parallel_processing": {
+        "max_workers": 8,
+        "chunk_size": 25,
+        "timeout_per_file": 600,
+        "memory_limit_mb": 512
+      }
+    },
+    "essentia": {
+      "audio_processing": {
+        "sample_rate": 44100,
+        "channels": 1,
+        "frame_size": 2048,
+        "hop_size": 1024
+      },
+      "algorithms": {
+        "enable_tensorflow": true,
+        "enable_complex_rhythm": true,
+        "enable_complex_harmonic": true,
+        "enable_beat_tracking": true,
+        "enable_tempo_tap": true,
+        "enable_rhythm_extractor": true,
+        "enable_pitch_analysis": true,
+        "enable_chord_detection": true
+      }
+    },
+    "quality": {
+      "min_confidence_threshold": 0.3,
+      "fallback_values": {
+        "tempo": 0,
+        "key": "X",
+        "scale": "major"
+      }
+    }
+  },
+  "database": {
+    "pool_size": 25,
+    "max_overflow": 35,
+    "pool_timeout": 45,
+    "pool_recycle": 7200,
+    "retry_settings": {
+      "max_retries": 3,
+      "initial_delay": 1,
+      "backoff_multiplier": 2,
+      "max_delay": 30
+    },
+    "connection_timeout": 30
+  },
+  "logging": {
+    "log_level": "DEBUG",
+    "max_file_size": 20480,
+    "max_backups": 10,
+    "compress": true,
+    "suppression": {
+      "tensorflow": true,
+      "essentia": true,
+      "librosa": true,
+      "matplotlib": true,
+      "pil": true
+    }
+  },
+  "discovery": {
+    "supported_extensions": [
+      ".mp3",
+      ".wav",
+      ".flac",
+      ".ogg",
+      ".opus"
+    ],
+    "batch_size": 50
+  },
+  "_metadata": {
+    "version": "2.0",
+    "last_updated": "2025-08-13T12:49:38.034505",
+    "description": "Consolidated configuration file for Essentia-Tensorflow Playlist App"
+  }
+}

@@ -123,14 +123,20 @@ class AudioAnalysisService:
                 file_record.status = FileStatus.ANALYZED
                 db.commit()
                 
-                # Add to FAISS index for similarity search (in separate session)
+                # Add to FAISS index for similarity search (in separate session) if enabled
                 try:
-                    with self._get_db_session() as faiss_db:
-                        faiss_result = faiss_service.add_track_to_index(faiss_db, file_path, include_tensorflow)
-                        if faiss_result.get("success"):
-                            logger.info(f"Track added to FAISS index: {file_path}")
-                        else:
-                            logger.warning(f"Failed to add track to FAISS index: {faiss_result.get('error')}")
+                    from ..core.analysis_config import analysis_config_loader
+                    config = analysis_config_loader.get_config()
+                    
+                    if config.algorithms.enable_faiss:
+                        with self._get_db_session() as faiss_db:
+                            faiss_result = faiss_service.add_track_to_index(faiss_db, file_path, include_tensorflow)
+                            if faiss_result.get("success"):
+                                logger.info(f"Track added to FAISS index: {file_path}")
+                            else:
+                                logger.warning(f"Failed to add track to FAISS index: {faiss_result.get('error')}")
+                    else:
+                        logger.info(f"FAISS indexing skipped for {file_path} (disabled in configuration)")
                 except Exception as e:
                     logger.warning(f"FAISS indexing failed for {file_path}: {e}")
                 

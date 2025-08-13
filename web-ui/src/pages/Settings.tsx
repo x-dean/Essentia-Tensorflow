@@ -1,88 +1,113 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getConfig, updateConfig, getDiscoveryConfig, getAnalysisConfig, backupConfigs, restoreConfigs, listConfigs, deleteConfig, reloadConfigs } from '../services/api';
-import { Settings as SettingsIcon, Save, RefreshCw, Database, Search, Play, AlertCircle, CheckCircle, Loader2, Globe, Music, ExternalLink, BarChart3, FileText } from 'lucide-react';
+import { 
+  getConfig, 
+  getConsolidatedConfig, 
+  updateConfig, 
+  backupConfigs, 
+  restoreConfigs, 
+  reloadConfigs,
+  updateAnalysisConfig
+} from '../services/api';
+import { 
+  Settings as SettingsIcon, 
+  Save, 
+  RefreshCw, 
+  Database, 
+  Search, 
+  Play, 
+  AlertCircle, 
+  CheckCircle, 
+  Loader2, 
+  Globe, 
+  Music, 
+  ExternalLink, 
+  BarChart3, 
+  FileText,
+  Download,
+  Upload,
+  Archive,
+  FileJson
+} from 'lucide-react';
 import LoadingSpinner from '../components/LoadingSpinner';
-import ConfigManager from '../components/ConfigManager';
 
-const Settings: React.FC = () => {
+const SettingsNew: React.FC = () => {
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState('app-settings');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // Fetch configuration data
-  const { data: config, isLoading: configLoading, error: configError } = useQuery({
-    queryKey: ['config'],
+  // Fetch consolidated configuration
+  const { data: consolidatedConfig, isLoading: configLoading, error: configError } = useQuery({
+    queryKey: ['consolidated-config'],
+    queryFn: getConsolidatedConfig,
+    retry: 2,
+    retryDelay: 5000,
+  });
+
+  // Fetch individual configs for comparison
+  const { data: individualConfigs, isLoading: individualLoading } = useQuery({
+    queryKey: ['individual-configs'],
     queryFn: getConfig,
-    retry: 2,
-    retryDelay: 5000,
-  });
-
-  const { data: discoveryConfig, isLoading: discoveryConfigLoading } = useQuery({
-    queryKey: ['discovery-config'],
-    queryFn: getDiscoveryConfig,
-    retry: 2,
-    retryDelay: 5000,
-  });
-
-  const { data: analysisConfig, isLoading: analysisConfigLoading } = useQuery({
-    queryKey: ['analysis-config'],
-    queryFn: getAnalysisConfig,
     retry: 2,
     retryDelay: 5000,
   });
 
   // Update configuration mutation
   const updateConfigMutation = useMutation({
-    mutationFn: updateConfig,
+    mutationFn: ({ section, data }: { section: string; data: any }) => updateConfig(section, data),
     onSuccess: async () => {
       setSuccess('Configuration updated successfully!');
       setError(null);
       
-      // Force refetch all configuration data immediately
+      // Force refetch all configuration data
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['config'] }),
-        queryClient.invalidateQueries({ queryKey: ['discovery-config'] }),
-        queryClient.invalidateQueries({ queryKey: ['analysis-config'] })
-      ]);
-      
-      // Force immediate refetch to get fresh data
-      await Promise.all([
-        queryClient.refetchQueries({ queryKey: ['config'] }),
-        queryClient.refetchQueries({ queryKey: ['discovery-config'] }),
-        queryClient.refetchQueries({ queryKey: ['analysis-config'] })
+        queryClient.invalidateQueries({ queryKey: ['consolidated-config'] }),
+        queryClient.invalidateQueries({ queryKey: ['individual-configs'] })
       ]);
       
       setTimeout(() => setSuccess(null), 3000);
     },
     onError: (error: any) => {
-      setError(`Failed to update configuration: ${error.response?.data?.detail || (error instanceof Error ? error.message : 'Unknown error')}`);
+      setError(`Failed to update configuration: ${error.response?.data?.detail || error.message}`);
+      setSuccess(null);
+    },
+  });
+
+  // Update analysis configuration mutation
+  const updateAnalysisConfigMutation = useMutation({
+    mutationFn: (data: any) => updateAnalysisConfig(data),
+    onSuccess: async () => {
+      setSuccess('Analysis configuration updated successfully!');
+      setError(null);
+      
+      // Force refetch all configuration data
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['consolidated-config'] }),
+        queryClient.invalidateQueries({ queryKey: ['individual-configs'] })
+      ]);
+      
+      setTimeout(() => setSuccess(null), 3000);
+    },
+    onError: (error: any) => {
+      setError(`Failed to update analysis configuration: ${error.response?.data?.detail || error.message}`);
       setSuccess(null);
     },
   });
 
   const handleSaveConfig = async (section: string, data: any) => {
-    await updateConfigMutation.mutateAsync({ section, data });
+    if (section === 'analysis_config') {
+      // Use the specific analysis config update endpoint
+      await updateAnalysisConfigMutation.mutateAsync(data);
+    } else {
+      // Use the general config update endpoint
+      await updateConfigMutation.mutateAsync({ section, data });
+    }
     
     // Reload configs on the backend
     try {
       await reloadConfigs();
     } catch (error) {
       console.warn('Failed to reload configs on backend:', error);
-    }
-    
-    // Invalidate and refetch the specific config based on section
-    if (section === 'analysis_config') {
-      await queryClient.invalidateQueries({ queryKey: ['analysis-config'] });
-      await queryClient.refetchQueries({ queryKey: ['analysis-config'] });
-    } else if (section === 'discovery') {
-      await queryClient.invalidateQueries({ queryKey: ['discovery-config'] });
-      await queryClient.refetchQueries({ queryKey: ['discovery-config'] });
-    } else {
-      // For other sections, invalidate the main config
-      await queryClient.invalidateQueries({ queryKey: ['config'] });
-      await queryClient.refetchQueries({ queryKey: ['config'] });
     }
   };
 
@@ -91,7 +116,14 @@ const Settings: React.FC = () => {
   const handleBackup = async () => {
     setIsBackingUp(true);
     try {
+      console.log('Starting backup...');
       const blob = await backupConfigs();
+      console.log('Backup blob received:', blob);
+      
+      if (!blob || blob.size === 0) {
+        throw new Error('Received empty backup file');
+      }
+      
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -104,7 +136,9 @@ const Settings: React.FC = () => {
       setError(null);
       setTimeout(() => setSuccess(null), 3000);
     } catch (error: any) {
-      setError(`Failed to download backup: ${error.response?.data?.detail || (error instanceof Error ? error.message : 'Unknown error')}`);
+      console.error('Backup error:', error);
+      const errorMessage = error.response?.data?.error || error.response?.data?.detail || error.message;
+      setError(`Failed to download backup: ${errorMessage}`);
       setSuccess(null);
     } finally {
       setIsBackingUp(false);
@@ -115,7 +149,6 @@ const Settings: React.FC = () => {
     const file = event.target.files?.[0];
     if (file) {
       restoreConfigMutation.mutate(file);
-      // Reset the input
       event.target.value = '';
     }
   };
@@ -125,28 +158,17 @@ const Settings: React.FC = () => {
     onSuccess: () => {
       setSuccess('Configuration restored successfully!');
       setError(null);
-      queryClient.invalidateQueries({ queryKey: ['config'] });
-      queryClient.invalidateQueries({ queryKey: ['discovery-config'] });
-      queryClient.invalidateQueries({ queryKey: ['analysis-config'] });
+      queryClient.invalidateQueries({ queryKey: ['consolidated-config'] });
+      queryClient.invalidateQueries({ queryKey: ['individual-configs'] });
       setTimeout(() => setSuccess(null), 3000);
     },
     onError: (error: any) => {
-      setError(`Failed to restore configuration: ${error.response?.data?.detail || (error instanceof Error ? error.message : 'Unknown error')}`);
+      setError(`Failed to restore configuration: ${error.response?.data?.detail || error.message}`);
       setSuccess(null);
     },
   });
 
-  const tabs = [
-    { id: 'app-settings', name: 'App Settings', icon: SettingsIcon, description: 'Core application configuration' },
-    { id: 'discovery', name: 'Discovery', icon: Search, description: 'File discovery and scanning settings' },
-    { id: 'analysis', name: 'Analysis', icon: Play, description: 'Audio analysis and processing settings' },
-    { id: 'database', name: 'Database', icon: Database, description: 'Database connection and pool settings' },
-    { id: 'logging', name: 'Logging', icon: FileText, description: 'Logging configuration and suppression' },
-    { id: 'external', name: 'External APIs', icon: Globe, description: 'External API integrations' },
-    { id: 'config-manager', name: 'Config Manager', icon: BarChart3, description: 'Advanced configuration management' },
-  ];
-
-  if (configLoading || discoveryConfigLoading || analysisConfigLoading) {
+  if (configLoading || individualLoading) {
     return (
       <div className="flex items-center justify-center py-12">
         <LoadingSpinner size="lg" text="Loading settings..." />
@@ -163,6 +185,9 @@ const Settings: React.FC = () => {
       </div>
     );
   }
+
+  const hasConsolidatedConfig = consolidatedConfig?.status === 'success';
+  const configData = hasConsolidatedConfig ? consolidatedConfig.config : individualConfigs?.configs;
 
   return (
     <div className="space-y-6">
@@ -185,7 +210,7 @@ const Settings: React.FC = () => {
             {isBackingUp ? (
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
             ) : (
-              <RefreshCw className="w-4 h-4 mr-2" />
+              <Download className="w-4 h-4 mr-2" />
             )}
             Backup
           </button>
@@ -194,7 +219,7 @@ const Settings: React.FC = () => {
             {restoreConfigMutation.isPending ? (
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
             ) : (
-              <Database className="w-4 h-4 mr-2" />
+              <Upload className="w-4 h-4 mr-2" />
             )}
             Restore
             <input
@@ -227,95 +252,69 @@ const Settings: React.FC = () => {
         </div>
       )}
 
-      {/* Tab Navigation */}
-      <div className="border-b border-gray-200 dark:border-gray-700">
-        <nav className="-mb-px flex space-x-8 overflow-x-auto">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 whitespace-nowrap ${
-                  activeTab === tab.id
-                    ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300 dark:hover:border-gray-600'
-                }`}
-                title={tab.description}
-              >
-                <Icon className="w-4 h-4" />
-                <span>{tab.name}</span>
-              </button>
-            );
-          })}
-        </nav>
-      </div>
 
-      {/* Tab Content */}
-      <div className="bg-white dark:bg-gray-800 shadow rounded-lg">
-        {activeTab === 'app-settings' && (
+
+      {/* All Settings Sections */}
+      <div className="space-y-8">
+        {/* App Settings */}
+        <div className="bg-white dark:bg-gray-800 shadow rounded-lg">
           <AppSettings 
-            key={`app-settings-${JSON.stringify(config?.configs?.app_settings)}`}
-            config={config?.configs?.app_settings} 
+            config={configData?.app_settings} 
             onSave={(data) => handleSaveConfig('app_settings', data)}
             isLoading={updateConfigMutation.isPending}
           />
-        )}
+        </div>
         
-        {activeTab === 'discovery' && (
+        {/* Discovery Settings */}
+        <div className="bg-white dark:bg-gray-800 shadow rounded-lg">
           <DiscoverySettings 
-            key={`discovery-${JSON.stringify(discoveryConfig)}`}
-            config={discoveryConfig} 
+            config={configData?.discovery} 
             onSave={(data) => handleSaveConfig('discovery', data)}
             isLoading={updateConfigMutation.isPending}
           />
-        )}
+        </div>
         
-        {activeTab === 'analysis' && (
+        {/* Analysis Settings */}
+        <div className="bg-white dark:bg-gray-800 shadow rounded-lg">
           <AnalysisSettings 
-            key={`analysis-${JSON.stringify(analysisConfig)}`}
-            config={analysisConfig} 
+            config={configData?.analysis_config} 
             onSave={(data) => handleSaveConfig('analysis_config', data)}
-            isLoading={updateConfigMutation.isPending}
+            isLoading={updateConfigMutation.isPending || updateAnalysisConfigMutation.isPending}
           />
-        )}
+        </div>
         
-        {activeTab === 'database' && (
+        {/* Database Settings */}
+        <div className="bg-white dark:bg-gray-800 shadow rounded-lg">
           <DatabaseSettings 
-            key={`database-${JSON.stringify(config?.configs?.database)}`}
-            config={config?.configs?.database} 
+            config={configData?.database} 
             onSave={(data) => handleSaveConfig('database', data)}
             isLoading={updateConfigMutation.isPending}
           />
-        )}
+        </div>
 
-        {activeTab === 'logging' && (
+        {/* Logging Settings */}
+        <div className="bg-white dark:bg-gray-800 shadow rounded-lg">
           <LoggingSettings 
-            key={`logging-${JSON.stringify(config?.configs?.logging)}`}
-            config={config?.configs?.logging} 
+            config={configData?.logging} 
             onSave={(data) => handleSaveConfig('logging', data)}
             isLoading={updateConfigMutation.isPending}
           />
-        )}
+        </div>
 
-        {activeTab === 'external' && (
+        {/* External API Settings */}
+        <div className="bg-white dark:bg-gray-800 shadow rounded-lg">
           <ExternalAPISettings 
-            key={`external-${JSON.stringify(config?.configs?.app_settings?.external_apis)}`}
-            config={config?.configs?.app_settings?.external_apis} 
-            onSave={(data) => handleSaveConfig('app_settings', { ...config?.configs?.app_settings, external_apis: data })}
+            config={configData?.app_settings?.external_apis || configData?.external} 
+            onSave={(data) => handleSaveConfig('app_settings', { ...configData?.app_settings, external_apis: data })}
             isLoading={updateConfigMutation.isPending}
           />
-        )}
-
-        {activeTab === 'config-manager' && (
-          <div className="p-6">
-            <ConfigManager />
-          </div>
-        )}
+        </div>
       </div>
     </div>
   );
 };
+
+
 
 // App Settings Component
 const AppSettings: React.FC<{ config: any; onSave: (data: any) => void; isLoading: boolean }> = ({ config, onSave, isLoading }) => {
@@ -365,29 +364,6 @@ const AppSettings: React.FC<{ config: any; onSave: (data: any) => void; isLoadin
       index_name: config?.faiss?.index_name ?? 'music_library',
       vector_dimension: config?.faiss?.vector_dimension ?? 128,
       similarity_threshold: config?.faiss?.similarity_threshold ?? 0.8
-    },
-    external_apis: {
-      musicbrainz: {
-        enabled: config?.external_apis?.external_apis?.musicbrainz?.enabled ?? true,
-        rateLimit: config?.external_apis?.external_apis?.musicbrainz?.rateLimit ?? 1,
-        timeout: config?.external_apis?.external_apis?.musicbrainz?.timeout ?? 10,
-        userAgent: config?.external_apis?.external_apis?.musicbrainz?.userAgent ?? 'PlaylistApp/1.0 (dean@example.com)'
-      },
-      lastfm: {
-        enabled: config?.external_apis?.external_apis?.lastfm?.enabled ?? true,
-        apiKey: config?.external_apis?.external_apis?.lastfm?.apiKey ?? '',
-        baseUrl: config?.external_apis?.external_apis?.lastfm?.baseUrl ?? 'https://ws.audioscrobbler.com/2.0/',
-        rateLimit: config?.external_apis?.external_apis?.lastfm?.rateLimit ?? 0.5,
-        timeout: config?.external_apis?.external_apis?.lastfm?.timeout ?? 10
-      },
-      discogs: {
-        enabled: config?.external_apis?.external_apis?.discogs?.enabled ?? true,
-        apiKey: config?.external_apis?.external_apis?.discogs?.apiKey ?? '',
-        baseUrl: config?.external_apis?.external_apis?.discogs?.baseUrl ?? 'https://api.discogs.com/',
-        rateLimit: config?.external_apis?.external_apis?.discogs?.rateLimit ?? 1,
-        timeout: config?.external_apis?.external_apis?.discogs?.timeout ?? 10,
-        userAgent: config?.external_apis?.external_apis?.discogs?.userAgent ?? 'PlaylistApp/1.0'
-      }
     }
   });
 
@@ -438,29 +414,6 @@ const AppSettings: React.FC<{ config: any; onSave: (data: any) => void; isLoadin
         index_name: config?.faiss?.index_name ?? 'music_library',
         vector_dimension: config?.faiss?.vector_dimension ?? 128,
         similarity_threshold: config?.faiss?.similarity_threshold ?? 0.8
-      },
-      external_apis: {
-        musicbrainz: {
-          enabled: config?.external_apis?.external_apis?.musicbrainz?.enabled ?? true,
-          rateLimit: config?.external_apis?.external_apis?.musicbrainz?.rateLimit ?? 1,
-          timeout: config?.external_apis?.external_apis?.musicbrainz?.timeout ?? 10,
-          userAgent: config?.external_apis?.external_apis?.musicbrainz?.userAgent ?? 'PlaylistApp/1.0 (dean@example.com)'
-        },
-        lastfm: {
-          enabled: config?.external_apis?.external_apis?.lastfm?.enabled ?? true,
-          apiKey: config?.external_apis?.external_apis?.lastfm?.apiKey ?? '',
-          baseUrl: config?.external_apis?.external_apis?.lastfm?.baseUrl ?? 'https://ws.audioscrobbler.com/2.0/',
-          rateLimit: config?.external_apis?.external_apis?.lastfm?.rateLimit ?? 0.5,
-          timeout: config?.external_apis?.external_apis?.lastfm?.timeout ?? 10
-        },
-        discogs: {
-          enabled: config?.external_apis?.external_apis?.discogs?.enabled ?? true,
-          apiKey: config?.external_apis?.external_apis?.discogs?.apiKey ?? '',
-          baseUrl: config?.external_apis?.external_apis?.discogs?.baseUrl ?? 'https://api.discogs.com/',
-          rateLimit: config?.external_apis?.external_apis?.discogs?.rateLimit ?? 1,
-          timeout: config?.external_apis?.external_apis?.discogs?.timeout ?? 10,
-          userAgent: config?.external_apis?.external_apis?.discogs?.userAgent ?? 'PlaylistApp/1.0'
-        }
       }
     });
   }, [config]);
@@ -622,17 +575,16 @@ const AppSettings: React.FC<{ config: any; onSave: (data: any) => void; isLoadin
   );
 };
 
-// Discovery Settings Component
 const DiscoverySettings: React.FC<{ config: any; onSave: (data: any) => void; isLoading: boolean }> = ({ config, onSave, isLoading }) => {
   const [settings, setSettings] = useState({
-    supported_extensions: config?.config?.supported_extensions?.join(', ') || '.mp3,.wav,.flac',
-    batch_size: config?.config?.batch_size || 125,
+    supported_extensions: config?.supported_extensions?.join(', ') || '.mp3,.wav,.flac',
+    batch_size: config?.batch_size || 990,
   });
 
   React.useEffect(() => {
     setSettings({
-      supported_extensions: config?.config?.supported_extensions?.join(', ') || '.mp3,.wav,.flac',
-      batch_size: config?.config?.batch_size || 125,
+      supported_extensions: config?.supported_extensions?.join(', ') || '.mp3,.wav,.flac',
+      batch_size: config?.batch_size || 990,
     });
   }, [config]);
 
@@ -694,10 +646,8 @@ const DiscoverySettings: React.FC<{ config: any; onSave: (data: any) => void; is
   );
 };
 
-// Analysis Settings Component
 const AnalysisSettings: React.FC<{ config: any; onSave: (data: any) => void; isLoading: boolean }> = ({ config, onSave, isLoading }) => {
-  // Get the analysis config from the config response
-  const analysisConfig = config?.config || config || {};
+  const analysisConfig = config || {};
   
   const [settings, setSettings] = useState({
     // Performance settings
@@ -708,6 +658,7 @@ const AnalysisSettings: React.FC<{ config: any; onSave: (data: any) => void; isL
     
     // Essentia algorithms
     enableTensorflow: analysisConfig?.essentia?.algorithms?.enable_tensorflow ?? true,
+    enableFaiss: analysisConfig?.essentia?.algorithms?.enable_faiss ?? true,
     enableComplexRhythm: analysisConfig?.essentia?.algorithms?.enable_complex_rhythm ?? true,
     enableComplexHarmonic: analysisConfig?.essentia?.algorithms?.enable_complex_harmonic ?? true,
     enableBeatTracking: analysisConfig?.essentia?.algorithms?.enable_beat_tracking ?? true,
@@ -729,18 +680,15 @@ const AnalysisSettings: React.FC<{ config: any; onSave: (data: any) => void; isL
     defaultScale: analysisConfig?.quality?.fallback_values?.scale ?? 'major',
   });
 
-  // Update local state when config changes
   React.useEffect(() => {
-    const analysisConfig = config?.config || config || {};
+    const analysisConfig = config || {};
     setSettings({
-      // Performance settings
       maxWorkers: analysisConfig?.performance?.parallel_processing?.max_workers ?? 4,
       chunkSize: analysisConfig?.performance?.parallel_processing?.chunk_size ?? 25,
       timeoutPerFile: analysisConfig?.performance?.parallel_processing?.timeout_per_file ?? 600,
       memoryLimitMB: analysisConfig?.performance?.parallel_processing?.memory_limit_mb ?? 512,
-      
-      // Essentia algorithms
       enableTensorflow: analysisConfig?.essentia?.algorithms?.enable_tensorflow ?? true,
+      enableFaiss: analysisConfig?.essentia?.algorithms?.enable_faiss ?? true,
       enableComplexRhythm: analysisConfig?.essentia?.algorithms?.enable_complex_rhythm ?? true,
       enableComplexHarmonic: analysisConfig?.essentia?.algorithms?.enable_complex_harmonic ?? true,
       enableBeatTracking: analysisConfig?.essentia?.algorithms?.enable_beat_tracking ?? true,
@@ -748,14 +696,10 @@ const AnalysisSettings: React.FC<{ config: any; onSave: (data: any) => void; isL
       enableRhythmExtractor: analysisConfig?.essentia?.algorithms?.enable_rhythm_extractor ?? true,
       enablePitchAnalysis: analysisConfig?.essentia?.algorithms?.enable_pitch_analysis ?? true,
       enableChordDetection: analysisConfig?.essentia?.algorithms?.enable_chord_detection ?? true,
-      
-      // Audio processing
       sampleRate: analysisConfig?.essentia?.audio_processing?.sample_rate ?? 44100,
       channels: analysisConfig?.essentia?.audio_processing?.channels ?? 1,
       frameSize: analysisConfig?.essentia?.audio_processing?.frame_size ?? 2048,
       hopSize: analysisConfig?.essentia?.audio_processing?.hop_size ?? 1024,
-      
-      // Quality settings
       minConfidenceThreshold: analysisConfig?.quality?.min_confidence_threshold ?? 0.3,
       defaultTempo: analysisConfig?.quality?.fallback_values?.tempo ?? 120.0,
       defaultKey: analysisConfig?.quality?.fallback_values?.key ?? 'C',
@@ -764,6 +708,7 @@ const AnalysisSettings: React.FC<{ config: any; onSave: (data: any) => void; isL
   }, [config]);
 
   const handleSave = () => {
+    // Call the specific analysis config update endpoint
     onSave({
       performance: {
         parallel_processing: {
@@ -782,6 +727,7 @@ const AnalysisSettings: React.FC<{ config: any; onSave: (data: any) => void; isL
         },
         algorithms: {
           enable_tensorflow: settings.enableTensorflow,
+          enable_faiss: settings.enableFaiss,
           enable_complex_rhythm: settings.enableComplexRhythm,
           enable_complex_harmonic: settings.enableComplexHarmonic,
           enable_beat_tracking: settings.enableBeatTracking,
@@ -949,6 +895,16 @@ const AnalysisSettings: React.FC<{ config: any; onSave: (data: any) => void; isL
             <div className="flex items-center">
               <input
                 type="checkbox"
+                checked={settings.enableFaiss}
+                onChange={(e) => setSettings({ ...settings, enableFaiss: e.target.checked })}
+                className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+              />
+              <span className="ml-2 text-sm text-gray-700 dark:text-gray-300">Enable Faiss</span>
+            </div>
+
+            <div className="flex items-center">
+              <input
+                type="checkbox"
                 checked={settings.enableComplexRhythm}
                 onChange={(e) => setSettings({ ...settings, enableComplexRhythm: e.target.checked })}
                 className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
@@ -1102,10 +1058,8 @@ const AnalysisSettings: React.FC<{ config: any; onSave: (data: any) => void; isL
   );
 };
 
-// Database Settings Component
 const DatabaseSettings: React.FC<{ config: any; onSave: (data: any) => void; isLoading: boolean }> = ({ config, onSave, isLoading }) => {
-  // Get the database config from the config response
-  const databaseConfig = config?.config || config || {};
+  const databaseConfig = config || {};
   
   const [settings, setSettings] = useState({
     poolSize: databaseConfig?.pool_size ?? 25,
@@ -1119,9 +1073,8 @@ const DatabaseSettings: React.FC<{ config: any; onSave: (data: any) => void; isL
     connectionTimeout: databaseConfig?.connection_timeout ?? 30,
   });
 
-  // Update local state when config changes
   React.useEffect(() => {
-    const databaseConfig = config?.config || config || {};
+    const databaseConfig = config || {};
     setSettings({
       poolSize: databaseConfig?.pool_size ?? 25,
       maxOverflow: databaseConfig?.max_overflow ?? 35,
@@ -1314,14 +1267,12 @@ const DatabaseSettings: React.FC<{ config: any; onSave: (data: any) => void; isL
   );
 };
 
-// Logging Settings Component
 const LoggingSettings: React.FC<{ config: any; onSave: (data: any) => void; isLoading: boolean }> = ({ config, onSave, isLoading }) => {
-  // Get the logging config from the config response
-  const loggingConfig = config?.config || config || {};
+  const loggingConfig = config || {};
   
   const [settings, setSettings] = useState({
     logLevel: loggingConfig?.log_level ?? 'DEBUG',
-    maxFileSize: loggingConfig?.max_file_size ?? 20480, // 20MB
+    maxFileSize: loggingConfig?.max_file_size ?? 20480,
     maxBackups: loggingConfig?.max_backups ?? 10,
     compress: loggingConfig?.compress ?? true,
     suppressTensorflow: loggingConfig?.suppression?.tensorflow ?? true,
@@ -1331,12 +1282,11 @@ const LoggingSettings: React.FC<{ config: any; onSave: (data: any) => void; isLo
     suppressPil: loggingConfig?.suppression?.pil ?? true,
   });
 
-  // Update local state when config changes
   React.useEffect(() => {
-    const loggingConfig = config?.config || config || {};
+    const loggingConfig = config || {};
     setSettings({
       logLevel: loggingConfig?.log_level ?? 'DEBUG',
-      maxFileSize: loggingConfig?.max_file_size ?? 20480, // 20MB
+      maxFileSize: loggingConfig?.max_file_size ?? 20480,
       maxBackups: loggingConfig?.max_backups ?? 10,
       compress: loggingConfig?.compress ?? true,
       suppressTensorflow: loggingConfig?.suppression?.tensorflow ?? true,
@@ -1508,72 +1458,99 @@ const LoggingSettings: React.FC<{ config: any; onSave: (data: any) => void; isLo
   );
 };
 
-// External APIs Settings Component
 const ExternalAPISettings: React.FC<{ config: any; onSave: (data: any) => void; isLoading: boolean }> = ({ config, onSave, isLoading }) => {
-  // Get the external config from app_settings configuration
   const externalConfig = config || {};
+  
+  // Helper function to get value with fallback for both snake_case and camelCase
+  const getConfigValue = (apiName: string, field: string, defaultValue: any) => {
+    const api = externalConfig[apiName];
+    if (!api) return defaultValue;
+    
+    // Try snake_case first, then camelCase
+    return api[field] ?? api[field.replace(/([A-Z])/g, '_$1').toLowerCase()] ?? defaultValue;
+  };
   
   const [settings, setSettings] = useState({
     musicbrainz: {
-      enabled: externalConfig?.external_apis?.musicbrainz?.enabled ?? true,
-      rateLimit: externalConfig?.external_apis?.musicbrainz?.rateLimit ?? 1.0,
-      timeout: externalConfig?.external_apis?.musicbrainz?.timeout ?? 10,
-      userAgent: externalConfig?.external_apis?.musicbrainz?.userAgent ?? "PlaylistApp/1.0 (dean@example.com)"
+      enabled: getConfigValue('musicbrainz', 'enabled', true),
+      rateLimit: getConfigValue('musicbrainz', 'rateLimit', 1.0),
+      timeout: getConfigValue('musicbrainz', 'timeout', 10),
+      userAgent: getConfigValue('musicbrainz', 'userAgent', "PlaylistApp/1.0 (dean@example.com)")
     },
     lastfm: {
-      enabled: externalConfig?.external_apis?.lastfm?.enabled ?? true,
-      apiKey: externalConfig?.external_apis?.lastfm?.apiKey ?? "2b07c1e8a2d308a749760ab8d579baa8",
-      baseUrl: externalConfig?.external_apis?.lastfm?.baseUrl ?? "https://ws.audioscrobbler.com/2.0/",
-      rateLimit: externalConfig?.external_apis?.lastfm?.rateLimit ?? 0.5,
-      timeout: externalConfig?.external_apis?.lastfm?.timeout ?? 10
+      enabled: getConfigValue('lastfm', 'enabled', true),
+      apiKey: getConfigValue('lastfm', 'apiKey', "2b07c1e8a2d308a749760ab8d579baa8"),
+      baseUrl: getConfigValue('lastfm', 'baseUrl', "https://ws.audioscrobbler.com/2.0/"),
+      rateLimit: getConfigValue('lastfm', 'rateLimit', 0.5),
+      timeout: getConfigValue('lastfm', 'timeout', 10)
     },
     discogs: {
-      enabled: externalConfig?.external_apis?.discogs?.enabled ?? false,
-      apiKey: externalConfig?.external_apis?.discogs?.apiKey ?? "fHtjqUtbbXdHMqMBqvblPvKpOCInINhDTUCHvgcS",
-      baseUrl: externalConfig?.external_apis?.discogs?.baseUrl ?? "https://api.discogs.com/",
-      rateLimit: externalConfig?.external_apis?.discogs?.rateLimit ?? 1.0,
-      timeout: externalConfig?.external_apis?.discogs?.timeout ?? 10,
-      userAgent: externalConfig?.external_apis?.discogs?.userAgent ?? "PlaylistApp/1.0"
+      enabled: getConfigValue('discogs', 'enabled', false),
+      apiKey: getConfigValue('discogs', 'apiKey', "fHtjqUtbbXdHMqMBqvblPvKpOCInINhDTUCHvgcS"),
+      baseUrl: getConfigValue('discogs', 'baseUrl', "https://api.discogs.com/"),
+      rateLimit: getConfigValue('discogs', 'rateLimit', 1.0),
+      timeout: getConfigValue('discogs', 'timeout', 10),
+      userAgent: getConfigValue('discogs', 'userAgent', "PlaylistApp/1.0")
     }
   });
 
-  // Update local state when config changes
   React.useEffect(() => {
     const externalConfig = config || {};
     setSettings({
       musicbrainz: {
-        enabled: externalConfig?.external_apis?.external_apis?.musicbrainz?.enabled ?? true,
-        rateLimit: externalConfig?.external_apis?.external_apis?.musicbrainz?.rateLimit ?? 1.0,
-        timeout: externalConfig?.external_apis?.external_apis?.musicbrainz?.timeout ?? 10,
-        userAgent: externalConfig?.external_apis?.external_apis?.musicbrainz?.userAgent ?? "PlaylistApp/1.0 (dean@example.com)"
+        enabled: getConfigValue('musicbrainz', 'enabled', true),
+        rateLimit: getConfigValue('musicbrainz', 'rateLimit', 1.0),
+        timeout: getConfigValue('musicbrainz', 'timeout', 10),
+        userAgent: getConfigValue('musicbrainz', 'userAgent', "PlaylistApp/1.0 (dean@example.com)")
       },
       lastfm: {
-        enabled: externalConfig?.external_apis?.external_apis?.lastfm?.enabled ?? true,
-        apiKey: externalConfig?.external_apis?.external_apis?.lastfm?.apiKey ?? "2b07c1e8a2d308a749760ab8d579baa8",
-        baseUrl: externalConfig?.external_apis?.external_apis?.lastfm?.baseUrl ?? "https://ws.audioscrobbler.com/2.0/",
-        rateLimit: externalConfig?.external_apis?.external_apis?.lastfm?.rateLimit ?? 0.5,
-        timeout: externalConfig?.external_apis?.external_apis?.lastfm?.timeout ?? 10
+        enabled: getConfigValue('lastfm', 'enabled', true),
+        apiKey: getConfigValue('lastfm', 'apiKey', "2b07c1e8a2d308a749760ab8d579baa8"),
+        baseUrl: getConfigValue('lastfm', 'baseUrl', "https://ws.audioscrobbler.com/2.0/"),
+        rateLimit: getConfigValue('lastfm', 'rateLimit', 0.5),
+        timeout: getConfigValue('lastfm', 'timeout', 10)
       },
       discogs: {
-        enabled: externalConfig?.external_apis?.external_apis?.discogs?.enabled ?? false,
-        apiKey: externalConfig?.external_apis?.external_apis?.discogs?.apiKey ?? "fHtjqUtbbXdHMqMBqvblPvKpOCInINhDTUCHvgcS",
-        baseUrl: externalConfig?.external_apis?.external_apis?.discogs?.baseUrl ?? "https://api.discogs.com/",
-        rateLimit: externalConfig?.external_apis?.external_apis?.discogs?.rateLimit ?? 1.0,
-        timeout: externalConfig?.external_apis?.external_apis?.discogs?.timeout ?? 10,
-        userAgent: externalConfig?.external_apis?.external_apis?.discogs?.userAgent ?? "PlaylistApp/1.0"
+        enabled: getConfigValue('discogs', 'enabled', false),
+        apiKey: getConfigValue('discogs', 'apiKey', "fHtjqUtbbXdHMqMBqvblPvKpOCInINhDTUCHvgcS"),
+        baseUrl: getConfigValue('discogs', 'baseUrl', "https://api.discogs.com/"),
+        rateLimit: getConfigValue('discogs', 'rateLimit', 1.0),
+        timeout: getConfigValue('discogs', 'timeout', 10),
+        userAgent: getConfigValue('discogs', 'userAgent', "PlaylistApp/1.0")
       }
     });
   }, [config]);
 
   const handleSave = () => {
-    onSave({
-      external_apis: settings
-    });
+    onSave(settings);
   };
 
+  // Check if external APIs are configured
+  const hasExternalConfig = externalConfig && Object.keys(externalConfig).length > 0;
+  
   return (
     <div className="p-6 space-y-6">
-      <h2 className="text-lg font-medium text-gray-900 dark:text-white">External APIs</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-medium text-gray-900 dark:text-white">External APIs</h2>
+        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+          hasExternalConfig 
+            ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+            : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+        }`}>
+          {hasExternalConfig ? 'Configured' : 'Not Configured'}
+        </span>
+      </div>
+      
+      {!hasExternalConfig && (
+        <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-md p-4">
+          <div className="flex">
+            <AlertCircle className="w-5 h-5 text-yellow-400 mr-2" />
+            <div className="text-sm text-yellow-700 dark:text-yellow-300">
+              External APIs are not configured. Configure them below to enable music metadata enrichment.
+            </div>
+          </div>
+        </div>
+      )}
       
       <div className="space-y-8">
         {/* MusicBrainz */}
@@ -1814,6 +1791,4 @@ const ExternalAPISettings: React.FC<{ config: any; onSave: (data: any) => void; 
   );
 };
 
-
-
-export default Settings;
+export default SettingsNew;

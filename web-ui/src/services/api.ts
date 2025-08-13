@@ -140,10 +140,56 @@ export const triggerAnalysis = async (includeTensorflow = false, maxWorkers?: nu
     if (maxWorkers) params.append('max_workers', maxWorkers.toString());
     if (maxFiles) params.append('max_files', maxFiles.toString());
     
-    const response = await api.post(`/analysis/trigger?${params.toString()}`);
+    const response = await api.post(`/analysis/trigger?${params.toString()}`, null, {
+      timeout: apiTimeouts.analysis,
+    });
     return response.data;
   } catch (error) {
     console.error('Failed to trigger analysis:', error);
+    throw error;
+  }
+};
+
+export const forceReanalyze = async (includeTensorflow = false, maxWorkers?: number, maxFiles?: number): Promise<any> => {
+  try {
+    const params = new URLSearchParams();
+    if (includeTensorflow) params.append('include_tensorflow', 'true');
+    if (maxWorkers) params.append('max_workers', maxWorkers.toString());
+    if (maxFiles) params.append('max_files', maxFiles.toString());
+    
+    const response = await api.post(`/analyzer/force-reanalyze?${params.toString()}`, null, {
+      timeout: apiTimeouts.analysis,
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Failed to force reanalyze:', error);
+    throw error;
+  }
+};
+
+export const enrichGenres = async (filePaths?: string[], forceReenrich = false, maxFiles?: number): Promise<any> => {
+  try {
+    const response = await api.post('/metadata/enrich-genres', {
+      file_paths: filePaths || [],
+      force_reenrich: forceReenrich,
+      max_files: maxFiles
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Failed to enrich genres:', error);
+    throw error;
+  }
+};
+
+export const forceReenrichMetadata = async (maxFiles?: number): Promise<any> => {
+  try {
+    const params = new URLSearchParams();
+    if (maxFiles) params.append('max_files', maxFiles.toString());
+    
+    const response = await api.post(`/metadata/force-reenrich?${params.toString()}`);
+    return response.data;
+  } catch (error) {
+    console.error('Failed to force reenrich metadata:', error);
     throw error;
   }
 };
@@ -161,103 +207,160 @@ export const getAnalysisStatus = async (): Promise<any> => {
   }
 };
 
+// Configuration API
 export const getConfig = async (): Promise<any> => {
-  try {
-    const response = await api.get('/config/all');
-    return response.data;
-  } catch (error) {
-    console.error('Failed to fetch config:', error);
-    throw error;
-  }
+  const response = await api.get('/config/all');
+  return response.data;
 };
 
-export const updateConfig = async (config: any): Promise<any> => {
-  try {
-    const response = await api.post('/config/update', config);
-    return response.data;
-  } catch (error) {
-    console.error('Failed to update config:', error);
-    throw error;
-  }
+export const getConsolidatedConfig = async (): Promise<any> => {
+  const response = await api.get('/config/consolidated');
+  return response.data;
 };
 
 export const getDiscoveryConfig = async (): Promise<any> => {
+  const response = await api.get('/config/discovery');
+  return response.data;
+};
+
+export const getAnalysisConfig = async (): Promise<any> => {
+  const response = await api.get('/config/analysis');
+  return response.data;
+};
+
+export const updateAnalysisConfig = async (data: any): Promise<any> => {
+  const response = await api.post('/config/analysis/update', data);
+  return response.data;
+};
+
+export const toggleTensorFlow = async (enabled: boolean): Promise<any> => {
+  const response = await api.post('/config/analysis/toggle-tensorflow', { enabled });
+  return response.data;
+};
+
+export const toggleFAISS = async (enabled: boolean): Promise<any> => {
+  const response = await api.post('/config/analysis/toggle-faiss', { enabled });
+  return response.data;
+};
+
+// Module status and control
+export const getAnalysisModulesStatus = async (): Promise<any> => {
   try {
-    const response = await api.get('/config/discovery');
+    const response = await api.get('/analysis/modules/status');
     return response.data;
   } catch (error) {
-    console.error('Failed to fetch discovery config:', error);
+    console.error('Failed to fetch module status:', error);
+    return {
+      status: 'error',
+      modules: {
+        essentia: { enabled: true, available: true, description: 'Audio feature extraction' },
+        tensorflow: { enabled: false, available: false, description: 'Machine learning classification' },
+        faiss: { enabled: false, available: false, description: 'Vector similarity search' }
+      }
+    };
+  }
+};
+
+export const toggleAnalysisModule = async (moduleName: string, enabled: boolean): Promise<any> => {
+  try {
+    const response = await api.post('/analysis/modules/toggle', null, {
+      params: { module_name: moduleName, enabled }
+    });
+    return response.data;
+  } catch (error) {
+    console.error(`Failed to toggle module ${moduleName}:`, error);
     throw error;
   }
 };
 
-export const getAnalysisConfig = async (): Promise<any> => {
-  try {
-    const response = await api.get('/config/analysis');
-    return response.data;
-  } catch (error) {
-    console.error('Failed to fetch analysis config:', error);
-    throw error;
-  }
+export const updateConfig = async (section: string, data: any): Promise<any> => {
+  const response = await api.post('/config/update', {
+    section,
+    data
+  });
+  return response.data;
 };
 
 export const backupConfigs = async (): Promise<Blob> => {
   try {
-    const response = await api.get('/config/backup', {
+    console.log('Making backup request to /config/backup');
+    const response = await api.post('/config/backup', {}, {
       responseType: 'blob'
     });
+    console.log('Backup response received:', response);
     return response.data;
   } catch (error) {
-    console.error('Failed to backup configurations:', error);
+    console.error('Backup API error:', error);
     throw error;
   }
 };
 
 export const restoreConfigs = async (file: File): Promise<any> => {
-  try {
-    const formData = new FormData();
-    formData.append('file', file);
-    
-    const response = await api.post('/config/restore', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
-    return response.data;
-  } catch (error) {
-    console.error('Failed to restore configurations:', error);
-    throw error;
-  }
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  const response = await api.post('/config/restore', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  });
+  return response.data;
 };
 
 export const listConfigs = async (): Promise<any> => {
-  try {
-    const response = await api.get('/config/list');
-    return response.data;
-  } catch (error) {
-    console.error('Failed to list configurations:', error);
-    throw error;
-  }
+  const response = await api.get('/config/list');
+  return response.data;
 };
 
 export const deleteConfig = async (section: string): Promise<any> => {
-  try {
-    const response = await api.delete(`/config/${section}`);
-    return response.data;
-  } catch (error) {
-    console.error('Failed to delete configuration:', error);
-    throw error;
-  }
+  const response = await api.delete(`/config/${section}`);
+  return response.data;
 };
 
 export const reloadConfigs = async (): Promise<any> => {
-  try {
-    const response = await api.post('/config/reload');
-    return response.data;
-  } catch (error) {
-    console.error('Failed to reload configurations:', error);
-    throw error;
-  }
+  const response = await api.post('/config/reload');
+  return response.data;
+};
+
+export const validateConfigs = async (): Promise<any> => {
+  const response = await api.get('/config/validate');
+  return response.data;
+};
+
+export const getConfigHealth = async (): Promise<any> => {
+  const response = await api.get('/config/monitor/health');
+  return response.data;
+};
+
+export const getConfigMetrics = async (configName?: string): Promise<any> => {
+  const params = configName ? { config_name: configName } : {};
+  const response = await api.get('/config/monitor/metrics', { params });
+  return response.data;
+};
+
+export const getConfigHistory = async (configName?: string, hours?: number): Promise<any> => {
+  const params: any = {};
+  if (configName) params.config_name = configName;
+  if (hours) params.hours = hours;
+  
+  const response = await api.get('/config/monitor/history', { params });
+  return response.data;
+};
+
+export const getConfigSchemas = async (): Promise<any> => {
+  const response = await api.get('/config/schemas');
+  return response.data;
+};
+
+export const resetConfigMetrics = async (configName?: string): Promise<any> => {
+  const params = configName ? { config_name: configName } : {};
+  const response = await api.post('/config/monitor/reset', {}, { params });
+  return response.data;
+};
+
+export const clearConfigHistory = async (): Promise<any> => {
+  const response = await api.post('/config/monitor/clear-history');
+  return response.data;
 };
 
 export const getDiscoveryStats = async (): Promise<DiscoveryStats> => {

@@ -63,6 +63,16 @@ class FAISSService:
             return {"error": "FAISS not available"}
         
         try:
+            # Check if FAISS is enabled in configuration
+            try:
+                from ..core.analysis_config import analysis_config_loader
+                config = analysis_config_loader.get_config()
+                if not config.algorithms.enable_faiss:
+                    return {"error": "FAISS indexing is disabled in configuration"}
+            except Exception as e:
+                logger.warning(f"Failed to check FAISS configuration: {e}")
+                # Continue with default behavior if config check fails
+            
             start_time = time.time()
             
             # Load vector analysis configuration
@@ -288,6 +298,16 @@ class FAISSService:
             return {"error": "FAISS not available"}
         
         try:
+            # Check if FAISS is enabled in configuration
+            try:
+                from ..core.analysis_config import analysis_config_loader
+                config = analysis_config_loader.get_config()
+                if not config.algorithms.enable_faiss:
+                    return {"error": "FAISS indexing is disabled in configuration"}
+            except Exception as e:
+                logger.warning(f"Failed to check FAISS configuration: {e}")
+                # Continue with default behavior if config check fails
+            
             # Get file record
             file_record = db.query(File).filter(File.file_path == file_path).first()
             if not file_record:

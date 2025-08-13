@@ -142,7 +142,7 @@ def print_json(data: Dict[str, Any], indent: int = 2):
 
 def print_categorization_results(data: Dict[str, Any]):
     """Print categorization results in a readable format"""
-    print("\n📊 File Categorization Results:")
+    print("\n File Categorization Results:")
     print("=" * 50)
     
     categories = data.get('categories', {})
@@ -164,7 +164,7 @@ def print_categorization_results(data: Dict[str, Any]):
 
 def print_batch_results(data: Dict[str, Any]):
     """Print batch analysis results in a readable format"""
-    print("\n🎵 Batch Analysis Results:")
+    print("\n Batch Analysis Results:")
     print("=" * 50)
     
     results = data.get('results', {})
@@ -192,7 +192,7 @@ def print_batch_results(data: Dict[str, Any]):
 
 def print_statistics(data: Dict[str, Any]):
     """Print statistics in a readable format"""
-    print("\n📈 Analysis Statistics:")
+    print("\n Analysis Statistics:")
     print("=" * 50)
     
     stats = data.get('statistics', {})
@@ -327,7 +327,7 @@ Examples:
             if args.json:
                 print_json(result)
             else:
-                print(f"✅ Analysis completed for: {args.file_path}")
+                print(f" Analysis completed for: {args.file_path}")
                 print(f"Duration: {result.get('result', {}).get('duration', 'N/A')} seconds")
         
         elif args.command == 'analyze-files':
@@ -335,7 +335,7 @@ Examples:
             if args.json:
                 print_json(result)
             else:
-                print(f"✅ Batch analysis completed for {len(args.file_paths)} files")
+                print(f" Batch analysis completed for {len(args.file_paths)} files")
                 print(f"Successful: {result.get('result', {}).get('successful', 0)}")
                 print(f"Failed: {result.get('result', {}).get('failed', 0)}")
         
@@ -359,7 +359,7 @@ Examples:
                 print_json(result)
             else:
                 analysis = result.get('result', {})
-                print(f"📊 Analysis for: {args.file_path}")
+                print(f" Analysis for: {args.file_path}")
                 print(f"Duration: {analysis.get('duration', 'N/A')} seconds")
                 print(f"Tempo: {analysis.get('rhythm_features', {}).get('tempo', 'N/A')} BPM")
                 print(f"Key: {analysis.get('harmonic_features', {}).get('key', 'N/A')} {analysis.get('harmonic_features', {}).get('scale', '')}")
@@ -370,7 +370,7 @@ Examples:
                 print_json(result)
             else:
                 summary = result.get('result', {})
-                print(f"📋 Summary for: {args.file_path}")
+                print(f" Summary for: {args.file_path}")
                 key_features = summary.get('key_features', {})
                 print(f"Tempo: {key_features.get('tempo', 'N/A')} BPM")
                 print(f"Key: {key_features.get('key', 'N/A')} {key_features.get('scale', '')}")
@@ -384,7 +384,7 @@ Examples:
             else:
                 files = result.get('files', [])
                 count = result.get('count', 0)
-                print(f"📁 Unanalyzed files: {count}")
+                print(f" Unanalyzed files: {count}")
                 for file_path in files[:10]:  # Show first 10
                     print(f"  └─ {file_path}")
                 if len(files) > 10:
@@ -395,7 +395,7 @@ Examples:
             if args.json:
                 print_json(result)
             else:
-                print(f"🗑️ Analysis deleted for: {args.file_path}")
+                print(f"️ Analysis deleted for: {args.file_path}")
         
     except Exception as e:
         logger.error(f"Command failed: {e}")

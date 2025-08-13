@@ -6,7 +6,6 @@ import Dashboard from './pages/Dashboard';
 import Tracks from './pages/Tracks';
 import ApiDocs from './pages/ApiDocs';
 import Settings from './pages/Settings';
-import SettingsNew from './pages/SettingsNew';
 import ErrorBoundary from './components/ErrorBoundary';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ConfigProvider } from './contexts/ConfigContext';
@@ -59,7 +58,7 @@ const App: React.FC = () => {
               <Route path="/api-docs" element={<ApiDocs />} />
               <Route path="/settings" element={
                 <ErrorBoundary>
-                  <SettingsNew />
+                  <Settings />
                 </ErrorBoundary>
               } />
             </Routes>

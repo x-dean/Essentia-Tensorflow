@@ -198,7 +198,7 @@ class PlaylistCLI:
             if verbose and results.get('added_files'):
                 print("\nProcessed files (with metadata extraction):")
                 for file_path in results['added_files'][:10]:  # Show first 10
-                    print(f"  ✓ {Path(file_path).name}")
+                    print(f"   {Path(file_path).name}")
                 if len(results['added_files']) > 10:
                     print(f"  ... and {len(results['added_files']) - 10} more files")
             
@@ -535,15 +535,15 @@ class PlaylistCLI:
             print(f"Error creating batches: {e}")
             return False
 
-    def analyze_files(self, max_workers: int = None, max_files: int = None, include_tensorflow: bool = False, verbose: bool = False):
-        """Analyze files using the new batch processing endpoint"""
+    def analyze_files(self, max_workers: int = None, max_files: int = None, include_tensorflow: bool = None, verbose: bool = False):
+        """Analyze all files"""
         try:
             params = {}
             if max_workers is not None:
                 params['max_workers'] = max_workers
             if max_files is not None:
                 params['max_files'] = max_files
-            if include_tensorflow:
+            if include_tensorflow is not None:
                 params['include_tensorflow'] = include_tensorflow
             
             if verbose:
@@ -552,8 +552,10 @@ class PlaylistCLI:
                     print(f"Max workers: {max_workers}")
                 if max_files:
                     print(f"Max files: {max_files}")
-                if include_tensorflow:
-                    print("TensorFlow analysis: enabled")
+                if include_tensorflow is not None:
+                    print(f"TensorFlow analysis: {'enabled' if include_tensorflow else 'disabled'}")
+                else:
+                    print("TensorFlow analysis: using configuration")
                 print()
             
             response = self._make_request("POST", "/api/analyzer/analyze-batches", params=params)
@@ -580,7 +582,7 @@ class PlaylistCLI:
             print(f"Error analyzing files: {e}")
             return False
 
-    def force_reanalyze(self, max_workers: int = None, max_files: int = None, include_tensorflow: bool = False, verbose: bool = False):
+    def force_reanalyze(self, max_workers: int = None, max_files: int = None, include_tensorflow: bool = None, verbose: bool = False):
         """Force re-analyze all files"""
         try:
             params = {}
@@ -588,7 +590,7 @@ class PlaylistCLI:
                 params['max_workers'] = max_workers
             if max_files is not None:
                 params['max_files'] = max_files
-            if include_tensorflow:
+            if include_tensorflow is not None:
                 params['include_tensorflow'] = include_tensorflow
             
             if verbose:
@@ -597,8 +599,10 @@ class PlaylistCLI:
                     print(f"Max workers: {max_workers}")
                 if max_files:
                     print(f"Max files: {max_files}")
-                if include_tensorflow:
-                    print("TensorFlow analysis: enabled")
+                if include_tensorflow is not None:
+                    print(f"TensorFlow analysis: {'enabled' if include_tensorflow else 'disabled'}")
+                else:
+                    print("TensorFlow analysis: using configuration")
                 print()
             
             response = self._make_request("POST", "/api/analyzer/force-reanalyze", params=params)

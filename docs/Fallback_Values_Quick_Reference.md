@@ -1,9 +1,9 @@
 # Fallback Values Quick Reference
 
-## 🎯 Core Principle
+##  Core Principle
 All failed extractions use **`-999`** as the standardized fallback value.
 
-## 📊 Fallback Values Summary
+##  Fallback Values Summary
 
 | Data Type | Fallback Value | Example Fields |
 |-----------|----------------|----------------|
@@ -13,7 +13,7 @@ All failed extractions use **`-999`** as the standardized fallback value.
 | **Array** | `[-999.0] * 40` | `mfcc_mean`, `mfcc_bands_mean` |
 | **TensorFlow** | `[-999.0]` | Model outputs |
 
-## 🔍 Quick Queries
+##  Quick Queries
 
 ### Find All Failed Extractions
 ```sql
@@ -43,7 +43,7 @@ FROM audio_metadata m
 JOIN audio_analysis a ON m.file_id = a.file_id;
 ```
 
-## 🐍 Python Usage
+##  Python Usage
 
 ### Check for Failed Extractions
 ```python
@@ -67,7 +67,7 @@ def process_analysis(analysis_result):
     return analysis_result
 ```
 
-## 🚨 Common Issues
+##  Common Issues
 
 | Issue | Cause | Solution |
 |-------|-------|----------|
@@ -76,7 +76,7 @@ def process_analysis(analysis_result):
 | `key = "unknown"` | Non-musical audio | Check if file contains music |
 | Multiple `-999.0` values | System resource issues | Check CPU/memory during processing |
 
-## 📈 Monitoring
+##  Monitoring
 
 ### Daily Quality Check
 ```sql
@@ -99,6 +99,6 @@ if failure_rate > 0.05:
 
 ---
 
-**📖 Full Documentation**: [Fallback Values System](Fallback_Values_System.md)  
-**🔄 Version**: 1.0  
-**📅 Last Updated**: 2025-01-11
+** Full Documentation**: [Fallback Values System](Fallback_Values_System.md)  
+** Version**: 1.0  
+** Last Updated**: 2025-01-11

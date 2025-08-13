@@ -27,11 +27,11 @@ def test_database_integration():
     try:
         # Create tables
         create_tables()
-        print("✓ Database tables created successfully")
+        print(" Database tables created successfully")
         
         # Test database connection
         db = next(get_db())
-        print("✓ Database connection successful")
+        print(" Database connection successful")
         
         # Test basic queries
         from playlist_app.models.database import File, AudioAnalysis, VectorIndex, FAISSIndexMetadata
@@ -42,7 +42,7 @@ def test_database_integration():
         vector_count = db.query(VectorIndex).count()
         metadata_count = db.query(FAISSIndexMetadata).count()
         
-        print(f"✓ Database tables accessible:")
+        print(f" Database tables accessible:")
         print(f"  - Files: {file_count}")
         print(f"  - Audio Analysis: {analysis_count}")
         print(f"  - Vector Index: {vector_count}")
@@ -52,7 +52,7 @@ def test_database_integration():
         return True
         
     except Exception as e:
-        print(f"✗ Database integration failed: {e}")
+        print(f" Database integration failed: {e}")
         return False
 
 def test_audio_analysis_integration():
@@ -77,7 +77,7 @@ def test_audio_analysis_integration():
                     # Analyze file
                     result = audio_analysis_service.analyze_file(db, test_file, include_tensorflow=True)
                     analyzed_files.append(test_file)
-                    print(f"✓ Analysis completed for {test_file}")
+                    print(f" Analysis completed for {test_file}")
                     
                     # Check if vector was added to database
                     from playlist_app.models.database import File, VectorIndex
@@ -85,23 +85,23 @@ def test_audio_analysis_integration():
                     if file_record:
                         vector_record = db.query(VectorIndex).filter(VectorIndex.file_id == file_record.id).first()
                         if vector_record:
-                            print(f"✓ Vector indexed for {test_file} (dimension: {vector_record.vector_dimension})")
+                            print(f" Vector indexed for {test_file} (dimension: {vector_record.vector_dimension})")
                         else:
-                            print(f"⚠ Vector not found for {test_file}")
+                            print(f" Vector not found for {test_file}")
                     
                 except Exception as e:
-                    print(f"✗ Analysis failed for {test_file}: {e}")
+                    print(f" Analysis failed for {test_file}: {e}")
         
         if not analyzed_files:
-            print("⚠ No test files found for analysis")
+            print(" No test files found for analysis")
             return False
         
-        print(f"✓ Successfully analyzed {len(analyzed_files)} files")
+        print(f" Successfully analyzed {len(analyzed_files)} files")
         db.close()
         return True
         
     except Exception as e:
-        print(f"✗ Audio analysis integration failed: {e}")
+        print(f" Audio analysis integration failed: {e}")
         return False
 
 def test_faiss_index_building():
@@ -120,19 +120,19 @@ def test_faiss_index_building():
         build_time = time.time() - start_time
         
         if result.get("success"):
-            print(f"✓ FAISS index built successfully:")
+            print(f" FAISS index built successfully:")
             print(f"  - Total vectors: {result.get('total_vectors', 0)}")
             print(f"  - Vector dimension: {result.get('vector_dimension', 0)}")
             print(f"  - Index type: {result.get('index_type', 'unknown')}")
             print(f"  - Build time: {build_time:.2f}s")
         else:
-            print(f"✗ FAISS index building failed: {result.get('error', 'Unknown error')}")
+            print(f" FAISS index building failed: {result.get('error', 'Unknown error')}")
             return False
         
         # Get index statistics
         stats = faiss_service.get_index_statistics(db)
         if not stats.get("error"):
-            print(f"✓ Index statistics:")
+            print(f" Index statistics:")
             print(f"  - Index coverage: {stats.get('index_coverage', 0):.1f}%")
             print(f"  - FAISS available: {stats.get('faiss_available', False)}")
             print(f"  - Index loaded: {stats.get('index_loaded', False)}")
@@ -141,7 +141,7 @@ def test_faiss_index_building():
         return True
         
     except Exception as e:
-        print(f"✗ FAISS index building failed: {e}")
+        print(f" FAISS index building failed: {e}")
         return False
 
 def test_similarity_search():
@@ -156,7 +156,7 @@ def test_similarity_search():
         test_file = db.query(File).filter(File.is_analyzed == True).first()
         
         if not test_file:
-            print("⚠ No analyzed files found for similarity search")
+            print(" No analyzed files found for similarity search")
             return False
         
         print(f"Finding tracks similar to: {test_file.file_path}")
@@ -165,17 +165,17 @@ def test_similarity_search():
         similar_tracks = faiss_service.find_similar_tracks(db, test_file.file_path, top_n=3)
         
         if similar_tracks:
-            print(f"✓ Found {len(similar_tracks)} similar tracks:")
+            print(f" Found {len(similar_tracks)} similar tracks:")
             for i, (track_path, similarity) in enumerate(similar_tracks, 1):
                 print(f"  {i}. {os.path.basename(track_path)} (similarity: {similarity:.3f})")
         else:
-            print("⚠ No similar tracks found")
+            print(" No similar tracks found")
         
         db.close()
         return True
         
     except Exception as e:
-        print(f"✗ Similarity search failed: {e}")
+        print(f" Similarity search failed: {e}")
         return False
 
 def test_vector_extraction():
@@ -195,7 +195,7 @@ def test_vector_extraction():
                 print(f"Extracting vector from {test_file}...")
                 try:
                     vector = essentia_analyzer.extract_feature_vector(test_file, include_tensorflow=True)
-                    print(f"✓ Vector extracted: {len(vector)} dimensions")
+                    print(f" Vector extracted: {len(vector)} dimensions")
                     
                     # Test vector properties
                     print(f"  - Shape: {vector.shape}")
@@ -206,12 +206,12 @@ def test_vector_extraction():
                     break  # Test with first available file
                     
                 except Exception as e:
-                    print(f"✗ Vector extraction failed for {test_file}: {e}")
+                    print(f" Vector extraction failed for {test_file}: {e}")
         
         return True
         
     except Exception as e:
-        print(f"✗ Vector extraction test failed: {e}")
+        print(f" Vector extraction test failed: {e}")
         return False
 
 def test_api_integration():
@@ -227,26 +227,26 @@ def test_api_integration():
         # Test FAISS statistics endpoint
         stats = audio_analysis_service.get_faiss_statistics(db)
         if not stats.get("error"):
-            print("✓ FAISS statistics endpoint working")
+            print(" FAISS statistics endpoint working")
         
         # Test analysis statistics endpoint
         analysis_stats = audio_analysis_service.get_analysis_statistics(db)
         if analysis_stats:
-            print("✓ Analysis statistics endpoint working")
+            print(" Analysis statistics endpoint working")
         
         # Test similarity search endpoint
         test_file = db.query(File).filter(File.is_analyzed == True).first()
         if test_file:
             similar_tracks = audio_analysis_service.find_similar_tracks(db, test_file.file_path, top_n=2)
             if similar_tracks is not None:
-                print("✓ Similarity search endpoint working")
+                print(" Similarity search endpoint working")
         
         db.close()
-        print("✓ API integration tests passed")
+        print(" API integration tests passed")
         return True
         
     except Exception as e:
-        print(f"✗ API integration test failed: {e}")
+        print(f" API integration test failed: {e}")
         return False
 
 def test_performance():
@@ -272,20 +272,20 @@ def test_performance():
             end_time = time.time()
             
             avg_time = (end_time - start_time) / 10
-            print(f"✓ Average search time: {avg_time*1000:.1f}ms")
+            print(f" Average search time: {avg_time*1000:.1f}ms")
             
             if avg_time < 0.1:  # Less than 100ms
-                print("✓ Performance is good")
+                print(" Performance is good")
             elif avg_time < 1.0:  # Less than 1 second
-                print("⚠ Performance is acceptable")
+                print(" Performance is acceptable")
             else:
-                print("✗ Performance is slow")
+                print(" Performance is slow")
         
         db.close()
         return True
         
     except Exception as e:
-        print(f"✗ Performance test failed: {e}")
+        print(f" Performance test failed: {e}")
         return False
 
 def main():
@@ -311,19 +311,19 @@ def main():
             if test_func():
                 passed += 1
             else:
-                print(f"✗ {test_name} test failed")
+                print(f" {test_name} test failed")
         except Exception as e:
-            print(f"✗ {test_name} test crashed: {e}")
+            print(f" {test_name} test crashed: {e}")
     
     print("\n" + "=" * 50)
     print(f"Integration Test Results: {passed}/{total} tests passed")
     
     if passed == total:
-        print("🎉 All tests passed! FAISS integration is working correctly.")
+        print(" All tests passed! FAISS integration is working correctly.")
     elif passed >= total * 0.8:
-        print("✅ Most tests passed. FAISS integration is mostly working.")
+        print(" Most tests passed. FAISS integration is mostly working.")
     else:
-        print("❌ Many tests failed. FAISS integration needs attention.")
+        print(" Many tests failed. FAISS integration needs attention.")
     
     return passed == total
 

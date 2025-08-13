@@ -81,9 +81,6 @@ async def get_analyzer_status():
         from ..services.audio_analysis_service import audio_analysis_service
         from ..core.analysis_config import analysis_config_loader
         
-        # Get analysis configuration
-        analysis_config = analysis_config_loader.get_analysis_config()
-        
         # Check if TensorFlow is available
         try:
             import tensorflow as tf
@@ -102,15 +99,42 @@ async def get_analyzer_status():
             essentia_available = False
             essentia_version = None
         
+        # Check if FAISS is available
+        try:
+            import faiss
+            faiss_available = True
+            faiss_version = faiss.__version__
+        except ImportError:
+            faiss_available = False
+            faiss_version = None
+        
+        # Get analysis configuration
+        analysis_config = analysis_config_loader.get_analysis_config()
+        
         return {
             "status": "operational",
-            "service": "analyzer",
-            "tensorflow_available": tensorflow_available,
-            "tensorflow_version": tensorflow_version,
-            "essentia_available": essentia_available,
-            "essentia_version": essentia_version,
-            "analysis_config_loaded": bool(analysis_config),
-            "audio_service_available": audio_analysis_service is not None
+            "services": {
+                "essentia": {
+                    "available": essentia_available,
+                    "version": essentia_version
+                },
+                "tensorflow": {
+                    "available": tensorflow_available,
+                    "version": tensorflow_version,
+                    "enabled": analysis_config.algorithms.enable_tensorflow
+                },
+                "faiss": {
+                    "available": faiss_available,
+                    "version": faiss_version,
+                    "enabled": analysis_config.algorithms.enable_faiss
+                }
+            },
+            "configuration": {
+                "tensorflow_enabled": analysis_config.algorithms.enable_tensorflow,
+                "faiss_enabled": analysis_config.algorithms.enable_faiss,
+                "max_workers": analysis_config.parallel_processing.max_workers,
+                "batch_size": analysis_config.optimization.batch_size
+            }
         }
     except Exception as e:
         return {
@@ -143,7 +167,7 @@ async def categorize_files(db: Session = Depends(get_db)):
 @router.post("/analyze-batches")
 async def analyze_batches(
     db: Session = Depends(get_db),
-    include_tensorflow: bool = False,
+    include_tensorflow: Optional[bool] = None,
     max_workers: Optional[int] = None,
     max_files: Optional[int] = None
 ):
@@ -151,6 +175,10 @@ async def analyze_batches(
     try:
         # Get configuration
         config = analysis_config_loader.get_config()
+        
+        # Use configuration values for TensorFlow and FAISS if not explicitly provided
+        if include_tensorflow is None:
+            include_tensorflow = config.algorithms.enable_tensorflow
         
         # Use config value if max_workers not provided
         if max_workers is None:
@@ -169,7 +197,7 @@ async def analyze_batches(
         if not all_files:
             return {"message": "No files need analysis", "total_files": 0}
         
-        logger.info(f"Analyzing {len(all_files)} files with {max_workers} workers")
+        logger.info(f"Analyzing {len(all_files)} files with {max_workers} workers (TensorFlow: {include_tensorflow}, FAISS: {config.algorithms.enable_faiss})")
         
         # Use multiprocessing for parallel analysis (CPU-bound tasks)
         import multiprocessing as mp
@@ -217,6 +245,8 @@ async def analyze_batches(
                 "processing_time": total_time,
                 "files_per_second": len(all_files) / total_time if total_time > 0 else 0,
                 "max_workers": max_workers,
+                "tensorflow_enabled": include_tensorflow,
+                "faiss_enabled": config.algorithms.enable_faiss,
                 "message": f"Batch analysis completed: {len(successful)} successful, {len(failed)} failed in {total_time:.2f}s"
             }
         }

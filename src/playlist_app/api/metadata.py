@@ -3,11 +3,166 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List, Dict, Any
 import logging
+from pydantic import BaseModel
 
 from ..models.database import get_db, File, AudioMetadata
+from ..services.genre_enrichment import genre_enrichment_manager
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/metadata", tags=["metadata"])
+
+class EnrichGenresRequest(BaseModel):
+    file_paths: List[str] = []
+    force_reenrich: bool = False
+    max_files: int = None
+
+@router.post("/enrich-genres")
+async def enrich_genres(
+    request: EnrichGenresRequest,
+    db: Session = Depends(get_db)
+):
+    """Enrich genre information for specified files or all files"""
+    try:
+        if request.file_paths:
+            # Enrich specific files
+            files_to_enrich = request.file_paths
+        else:
+            # Get all files that need enrichment
+            query = db.query(File)
+            if not request.force_reenrich:
+                # Only files without genre or with generic genres
+                query = query.filter(
+                    (File.audio_metadata == None) |
+                    (AudioMetadata.genre.is_(None)) |
+                    (AudioMetadata.genre == "") |
+                    (AudioMetadata.genre.in_(["Unknown", "unknown", "Unknown Genre"]))
+                )
+            
+            files = query.all()
+            files_to_enrich = [f.file_path for f in files]
+            
+            if request.max_files:
+                files_to_enrich = files_to_enrich[:request.max_files]
+        
+        enriched_count = 0
+        failed_count = 0
+        
+        for file_path in files_to_enrich:
+            try:
+                # Get file record
+                file_record = db.query(File).filter(File.file_path == file_path).first()
+                if not file_record:
+                    continue
+                
+                # Get or create metadata
+                metadata = db.query(AudioMetadata).filter(AudioMetadata.file_id == file_record.id).first()
+                if not metadata:
+                    # Create basic metadata if it doesn't exist
+                    metadata = AudioMetadata(
+                        file_id=file_record.id,
+                        title=file_record.file_name,
+                        artist="Unknown",
+                        album="Unknown"
+                    )
+                    db.add(metadata)
+                    db.commit()
+                    db.refresh(metadata)
+                
+                # Enrich metadata
+                enriched_metadata = genre_enrichment_manager.enrich_metadata({
+                    'title': metadata.title,
+                    'artist': metadata.artist,
+                    'album': metadata.album
+                })
+                
+                # Update metadata with enriched genre
+                if enriched_metadata.get('genre'):
+                    metadata.genre = enriched_metadata['genre']
+                    db.commit()
+                    enriched_count += 1
+                    logger.info(f"Enriched genre for {file_path}: {enriched_metadata['genre']}")
+                
+            except Exception as e:
+                logger.error(f"Failed to enrich {file_path}: {e}")
+                failed_count += 1
+        
+        return {
+            "status": "success",
+            "results": {
+                "total_files": len(files_to_enrich),
+                "enriched": enriched_count,
+                "failed": failed_count,
+                "message": f"Genre enrichment completed: {enriched_count} enriched, {failed_count} failed"
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Genre enrichment failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Genre enrichment failed: {str(e)}")
+
+@router.post("/force-reenrich")
+async def force_reenrich_metadata(
+    db: Session = Depends(get_db),
+    max_files: int = None
+):
+    """Force re-enrich metadata for all files"""
+    try:
+        # Get all files with metadata
+        files = db.query(File).filter(File.has_metadata == True).all()
+        files_to_enrich = [f.file_path for f in files]
+        
+        if max_files:
+            files_to_enrich = files_to_enrich[:max_files]
+        
+        enriched_count = 0
+        failed_count = 0
+        
+        for file_path in files_to_enrich:
+            try:
+                # Get file record
+                file_record = db.query(File).filter(File.file_path == file_path).first()
+                if not file_record:
+                    continue
+                
+                # Get metadata
+                metadata = db.query(AudioMetadata).filter(AudioMetadata.file_id == file_record.id).first()
+                if not metadata:
+                    continue
+                
+                # Re-enrich metadata
+                enriched_metadata = genre_enrichment_manager.enrich_metadata({
+                    'title': metadata.title,
+                    'artist': metadata.artist,
+                    'album': metadata.album
+                })
+                
+                # Update metadata with enriched information
+                if enriched_metadata.get('genre'):
+                    metadata.genre = enriched_metadata['genre']
+                if enriched_metadata.get('year'):
+                    metadata.year = enriched_metadata['year']
+                
+                db.commit()
+                enriched_count += 1
+                logger.info(f"Re-enriched metadata for {file_path}")
+                
+            except Exception as e:
+                logger.error(f"Failed to re-enrich {file_path}: {e}")
+                failed_count += 1
+        
+        return {
+            "status": "success",
+            "results": {
+                "total_files": len(files_to_enrich),
+                "enriched": enriched_count,
+                "failed": failed_count,
+                "message": f"Metadata re-enrichment completed: {enriched_count} enriched, {failed_count} failed"
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Metadata re-enrichment failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Metadata re-enrichment failed: {str(e)}")
 
 @router.get("/search")
 async def search_metadata(

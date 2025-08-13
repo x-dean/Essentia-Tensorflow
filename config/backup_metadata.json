@@ -1,0 +1,16 @@
+{
+  "timestamp": "20250813_093042",
+  "backup_type": "manual",
+  "files_backed_up": [
+    "analysis.json",
+    "analysis_config.json",
+    "app_settings.json",
+    "config.json",
+    "database.json",
+    "discovery.json",
+    "external.json",
+    "general.json",
+    "logging.json",
+    "performance.json"
+  ]
+}

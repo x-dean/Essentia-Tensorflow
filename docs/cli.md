@@ -185,8 +185,8 @@ Checks if configured search directories exist.
 ```
 Validating search directories...
 
-✓ /music
-✗ /audio (does not exist)
+ /music
+ /audio (does not exist)
 
 Some search directories do not exist. Please check your configuration.
 ```
@@ -370,7 +370,7 @@ The CLI provides clear error messages and appropriate exit codes:
 Error initializing database: [Errno 13] Permission denied
 
 # Invalid directory
-✗ /invalid/path (does not exist)
+ /invalid/path (does not exist)
 
 # No files found
 No files found.

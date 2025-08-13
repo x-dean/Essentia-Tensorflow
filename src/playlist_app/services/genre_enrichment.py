@@ -61,10 +61,10 @@ class GenreEnrichmentManager:
                 new_genre = enriched_metadata.get('genre', '').lower()
                 if new_genre and new_genre not in ['other', 'unknown', 'none', '']:
                     metadata['genre'] = enriched_metadata['genre']
-                    logger.info(f"✓ Found genre '{enriched_metadata['genre']}' using {service_name}")
+                    logger.info(f" Found genre '{enriched_metadata['genre']}' using {service_name}")
                     return metadata
                 else:
-                    logger.info(f"✗ No genre found using {service_name}")
+                    logger.info(f" No genre found using {service_name}")
                     
             except Exception as e:
                 logger.warning(f"Error using {service_name} for genre enrichment: {e}")

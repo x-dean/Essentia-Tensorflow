@@ -1,0 +1,114 @@
+{
+  "essentia": {
+    "audio_processing": {
+      "sample_rate": 44100,
+      "channels": 1,
+      "frame_size": 2048,
+      "hop_size": 1024,
+      "window_type": "hann",
+      "zero_padding": 0
+    },
+    "spectral_analysis": {
+      "min_frequency": 20.0,
+      "max_frequency": 8000.0,
+      "n_mels": 96,
+      "n_mfcc": 40,
+      "n_spectral_peaks": 100,
+      "silence_threshold": -60.0
+    },
+    "track_analysis": {
+      "min_track_length": 1.0,
+      "max_track_length": 600.0,
+      "chunk_duration": 45.0,
+      "overlap_ratio": 0.5
+    },
+    "algorithms": {
+      "enable_tensorflow": true,
+      "enable_complex_rhythm": true,
+      "enable_complex_harmonic": true,
+      "enable_beat_tracking": true,
+      "enable_tempo_tap": true,
+      "enable_rhythm_extractor": true,
+      "enable_pitch_analysis": true,
+      "enable_chord_detection": true
+    }
+  },
+  "performance": {
+    "parallel_processing": {
+      "max_workers": 4,
+      "chunk_size": 20,
+      "timeout_per_file": 300,
+      "memory_limit_mb": 512
+    },
+    "caching": {
+      "enable_cache": true,
+      "cache_duration_hours": 24,
+      "max_cache_size_mb": 1024
+    },
+    "optimization": {
+      "use_ffmpeg_streaming": true,
+      "smart_segmentation": true,
+      "skip_existing_analysis": true,
+      "batch_size": 50
+    }
+  },
+  "analysis_strategies": {
+    "short_tracks": {
+      "max_duration": 300,
+      "strategy": "key_segments",
+      "segments": [
+        "beginning",
+        "middle",
+        "end"
+      ],
+      "segment_duration": 30
+    },
+    "medium_tracks": {
+      "max_duration": 600,
+      "strategy": "three_point",
+      "segments": [
+        "beginning",
+        "quarter",
+        "middle",
+        "three_quarter",
+        "end"
+      ],
+      "segment_duration": 30
+    },
+    "long_tracks": {
+      "max_duration": 3600,
+      "strategy": "strategic_points",
+      "segments": [
+        "beginning",
+        "20_percent",
+        "40_percent",
+        "60_percent",
+        "80_percent",
+        "end"
+      ],
+      "segment_duration": 30
+    }
+  },
+  "output": {
+    "store_individual_columns": true,
+    "store_complete_json": true,
+    "compress_json": false,
+    "include_segment_details": true,
+    "include_processing_metadata": true
+  },
+  "quality": {
+    "min_confidence_threshold": 0.3,
+    "fallback_values": {
+      "tempo": 120.0,
+      "key": "C",
+      "scale": "major",
+      "key_strength": 0.0
+    },
+    "error_handling": {
+      "continue_on_error": true,
+      "log_errors": true,
+      "retry_failed": false,
+      "max_retries": 3
+    }
+  }
+}

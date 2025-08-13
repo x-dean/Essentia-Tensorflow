@@ -21,7 +21,7 @@ class ConfigurationSystemTester:
         
     def log_test(self, test_name: str, success: bool, details: str = ""):
         """Log test results"""
-        status = "✅ PASS" if success else "❌ FAIL"
+        status = " PASS" if success else " FAIL"
         print(f"{status} {test_name}")
         if details:
             print(f"   {details}")
@@ -33,7 +33,7 @@ class ConfigurationSystemTester:
     
     def test_phase1_basic_configuration(self):
         """Test Phase 1: Basic configuration improvements"""
-        print("\n🔧 Testing Phase 1: Basic Configuration")
+        print("\n Testing Phase 1: Basic Configuration")
         print("=" * 50)
         
         # Test 1: API timeouts configuration
@@ -89,7 +89,7 @@ class ConfigurationSystemTester:
     
     def test_phase2_advanced_configuration(self):
         """Test Phase 2: Advanced configuration improvements"""
-        print("\n🚀 Testing Phase 2: Advanced Configuration")
+        print("\n Testing Phase 2: Advanced Configuration")
         print("=" * 50)
         
         # Test 1: Analysis configuration
@@ -135,7 +135,7 @@ class ConfigurationSystemTester:
     
     def test_phase3_monitoring_validation(self):
         """Test Phase 3: Monitoring and validation features"""
-        print("\n📊 Testing Phase 3: Monitoring & Validation")
+        print("\n Testing Phase 3: Monitoring & Validation")
         print("=" * 50)
         
         # Test 1: Configuration validation
@@ -208,7 +208,7 @@ class ConfigurationSystemTester:
     
     def test_configuration_files(self):
         """Test configuration file structure and content"""
-        print("\n📁 Testing Configuration Files")
+        print("\n Testing Configuration Files")
         print("=" * 50)
         
         config_dir = Path("config")
@@ -319,7 +319,7 @@ class ConfigurationSystemTester:
     
     def test_service_integration(self):
         """Test service integration with new configuration"""
-        print("\n🔗 Testing Service Integration")
+        print("\n Testing Service Integration")
         print("=" * 50)
         
         # Test 1: Discovery service with new config
@@ -360,7 +360,7 @@ class ConfigurationSystemTester:
     
     def run_all_tests(self):
         """Run all configuration system tests"""
-        print("🧪 Configuration System Test Suite")
+        print(" Configuration System Test Suite")
         print("=" * 60)
         print(f"Testing against: {self.base_url}")
         print(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -373,7 +373,7 @@ class ConfigurationSystemTester:
         self.test_service_integration()
         
         # Summary
-        print("\n📋 Test Summary")
+        print("\n Test Summary")
         print("=" * 60)
         
         total_tests = len(self.test_results)
@@ -381,12 +381,12 @@ class ConfigurationSystemTester:
         failed_tests = total_tests - passed_tests
         
         print(f"Total Tests: {total_tests}")
-        print(f"Passed: {passed_tests} ✅")
-        print(f"Failed: {failed_tests} ❌")
+        print(f"Passed: {passed_tests} ")
+        print(f"Failed: {failed_tests} ")
         print(f"Success Rate: {(passed_tests/total_tests*100):.1f}%")
         
         if failed_tests > 0:
-            print("\n❌ Failed Tests:")
+            print("\n Failed Tests:")
             for result in self.test_results:
                 if not result['success']:
                     print(f"  - {result['test']}: {result['details']}")
@@ -415,7 +415,7 @@ def main():
                 "success": success,
                 "results": tester.test_results
             }, f, indent=2)
-        print(f"\n📄 Results saved to: {args.output}")
+        print(f"\n Results saved to: {args.output}")
     
     sys.exit(0 if success else 1)
 

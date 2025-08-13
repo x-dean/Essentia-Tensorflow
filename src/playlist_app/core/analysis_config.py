@@ -47,6 +47,7 @@ class TrackAnalysisConfig:
 class AlgorithmConfig:
     """Algorithm enable/disable configuration"""
     enable_tensorflow: bool = False
+    enable_faiss: bool = True
     enable_complex_rhythm: bool = False
     enable_complex_harmonic: bool = False
     enable_beat_tracking: bool = False

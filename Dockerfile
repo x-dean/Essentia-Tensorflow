@@ -35,13 +35,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libfftw3-double3 \
     libsamplerate0 \
     libyaml-0-2 \
-    libtag1v5 \
+    libtag2 \
     libchromaprint1 \
     libsndfile1 \
     libmad0 \
     libvorbis0a \
     libvorbisenc2 \
-    libflac12 \
+    libflac14 \
     libvamp-sdk2v5 \
     libpq5 \
     libssl3 \

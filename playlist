@@ -1,0 +1,6 @@
+#!/bin/bash
+# Wrapper script for the master CLI
+# This allows direct usage like: ./playlist database status
+
+cd "$(dirname "$0")"
+python scripts/master_cli.py "$@"

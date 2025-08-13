@@ -48,6 +48,32 @@ try:
         enable_file=True,
         structured_console=os.getenv("LOG_STRUCTURED_CONSOLE", "false").lower() == "true"
     )
+    
+    # Apply log suppression based on configuration
+    suppression_config = logging_config.get("suppression", {})
+    
+    # TensorFlow suppression
+    if suppression_config.get("tensorflow", True):
+        os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # Suppress INFO, WARNING, and ERROR logs
+    
+    # Essentia suppression
+    if suppression_config.get("essentia", True):
+        try:
+            import essentia
+            essentia.log.infoActive = False      # Disable INFO messages
+            essentia.log.warningActive = False   # Disable WARNING messages
+            # Keep ERROR active for critical issues
+        except ImportError:
+            pass
+    
+    # Librosa suppression
+    if suppression_config.get("librosa", True):
+        os.environ["LIBROSA_LOG_LEVEL"] = "WARNING"
+    
+    # Python warnings suppression
+    if suppression_config.get("pil", True):
+        os.environ["PYTHONWARNINGS"] = "ignore"
+        
 except Exception as e:
     # Fallback to environment variables
     setup_logging(
@@ -59,46 +85,19 @@ except Exception as e:
         enable_file=True,
         structured_console=os.getenv("LOG_STRUCTURED_CONSOLE", "false").lower() == "true"
     )
-
-    # Apply log suppression based on configuration
+    
+    # Fallback to hardcoded suppression
+    os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+    
     try:
-        suppression_config = logging_config.get("suppression", {})
-        
-        # TensorFlow suppression
-        if suppression_config.get("tensorflow", True):
-            os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # Suppress INFO, WARNING, and ERROR logs
-        
-        # Essentia suppression
-        if suppression_config.get("essentia", True):
-            try:
-                import essentia
-                essentia.log.infoActive = False      # Disable INFO messages
-                essentia.log.warningActive = False   # Disable WARNING messages
-                # Keep ERROR active for critical issues
-            except ImportError:
-                pass
-        
-        # Librosa suppression
-        if suppression_config.get("librosa", True):
-            os.environ["LIBROSA_LOG_LEVEL"] = "WARNING"
-        
-        # Python warnings suppression
-        if suppression_config.get("pil", True):
-            os.environ["PYTHONWARNINGS"] = "ignore"
-            
-    except Exception as e:
-        # Fallback to hardcoded suppression
-        os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
-        
-        try:
-            import essentia
-            essentia.log.infoActive = False
-            essentia.log.warningActive = False
-        except ImportError:
-            pass
-        
-        os.environ["LIBROSA_LOG_LEVEL"] = "WARNING"
-        os.environ["PYTHONWARNINGS"] = "ignore"
+        import essentia
+        essentia.log.infoActive = False
+        essentia.log.warningActive = False
+    except ImportError:
+        pass
+    
+    os.environ["LIBROSA_LOG_LEVEL"] = "WARNING"
+    os.environ["PYTHONWARNINGS"] = "ignore"
 
 # Also suppress via Python logging if not in debug mode
 if os.getenv("LOG_LEVEL", "INFO").upper() != "DEBUG":
@@ -147,6 +146,43 @@ def load_saved_configurations():
 
 # Load configurations at module level
 load_saved_configurations()
+
+def reload_configurations():
+    """Reload configurations dynamically"""
+    global background_discovery_enabled, discovery_interval
+    
+    try:
+        logger.info("Reloading configurations dynamically...")
+        
+        # Clear config cache first
+        config_loader.reload_config()
+        
+        # Load app settings
+        app_config = config_loader.get_app_settings()
+        
+        # Load discovery settings
+        discovery_config = app_config.get("discovery", {})
+        background_discovery_enabled = discovery_config.get("background_enabled", False)
+        discovery_interval = discovery_config.get("interval", 300)
+        
+        logger.info(f"Reloaded discovery settings: background_enabled={background_discovery_enabled}, interval={discovery_interval}")
+        
+        # Load database settings
+        db_config = config_loader.get_database_config()
+        logger.info(f"Reloaded database configuration: pool_size={db_config.get('pool_size', 25)}")
+        
+        # Reload logging configuration
+        try:
+            logging_config = config_loader.get_logging_config()
+            logger.info(f"Reloaded logging configuration: log_level={logging_config.get('log_level', 'INFO')}")
+        except Exception as e:
+            logger.warning(f"Failed to reload logging configuration: {e}")
+        
+        logger.info("Configuration reloading completed")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to reload configurations: {e}")
+        return False
 
 def initialize_database():
     """Initialize database tables"""
@@ -350,52 +386,59 @@ def run_analysis_sync(include_tensorflow=False, max_workers=None, max_files=None
         total_files = len(all_files)
         analysis_progress = {"status": "running", "progress": 10, "message": f"Preparing to analyze {total_files} files...", "total_files": total_files, "completed_files": 0}
         
-        logger.info(f"Analyzing {total_files} files with {max_workers} workers")
+        logger.info(f"Analyzing {total_files} files with modular analysis service")
         
-        # Use multiprocessing for parallel analysis (CPU-bound tasks)
-        import multiprocessing as mp
-        from concurrent.futures import ProcessPoolExecutor, as_completed
-        import time
-        import os
+        # Use the new modular analysis service
+        from src.playlist_app.services.modular_analysis_service import modular_analysis_service
         
-        # Use the module-level function for multiprocessing
-        from functools import partial
-        from src.playlist_app.api.analyzer import analyze_single_file_mp
-        analyze_func = partial(analyze_single_file_mp, include_tensorflow=include_tensorflow, force_reanalyze=False)
+        # Get module configuration
+        enable_essentia = True  # Essentia is always enabled
+        enable_tensorflow = include_tensorflow and config.algorithms.enable_tensorflow
+        enable_faiss = config.algorithms.enable_faiss
         
-        # Process files in parallel using multiprocessing
-        start_time = time.time()
+        logger.info(f"Modules enabled - Essentia: {enable_essentia}, TensorFlow: {enable_tensorflow}, FAISS: {enable_faiss}")
+        
+        # Process files in batches to avoid memory issues
+        batch_size = config.optimization.batch_size
         results = []
         completed_count = 0
         
-        # Use ProcessPoolExecutor for CPU-bound tasks
-        with ProcessPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all analysis tasks
-            future_to_file = {executor.submit(analyze_func, file_path): file_path 
-                            for file_path in all_files}
+        for i in range(0, len(all_files), batch_size):
+            batch_files = all_files[i:i + batch_size]
+            batch_num = (i // batch_size) + 1
+            total_batches = (len(all_files) + batch_size - 1) // batch_size
             
-            # Collect results as they complete
-            for future in as_completed(future_to_file):
-                file_path = future_to_file[future]
-                try:
-                    result = future.result()
-                    results.append(result)
-                    completed_count += 1
-                    
-                    # Update progress
-                    progress = int((completed_count / total_files) * 80) + 10  # 10-90% range
-                    analysis_progress = {
-                        "status": "running", 
-                        "progress": progress, 
-                        "message": f"Analyzed {completed_count}/{total_files} files...", 
-                        "total_files": total_files, 
-                        "completed_files": completed_count
-                    }
-                    
-                    logger.info(f"Completed analysis for {file_path}")
-                except Exception as e:
-                    logger.error(f"Failed to analyze {file_path}: {e}")
-                    completed_count += 1
+            logger.info(f"Processing batch {batch_num}/{total_batches} with {len(batch_files)} files")
+            
+            # Update progress for batch start
+            progress = int((i / len(all_files)) * 80) + 10  # 10-90% range
+            analysis_progress = {
+                "status": "running", 
+                "progress": progress, 
+                "message": f"Processing batch {batch_num}/{total_batches} ({len(batch_files)} files)...", 
+                "total_files": total_files, 
+                "completed_files": completed_count
+            }
+            
+            # Process batch
+            try:
+                batch_results = modular_analysis_service.analyze_files_batch(
+                    batch_files,
+                    enable_essentia=enable_essentia,
+                    enable_tensorflow=enable_tensorflow,
+                    enable_faiss=enable_faiss,
+                    force_reanalyze=False
+                )
+                
+                results.extend(batch_results["results"])
+                completed_count += batch_results["successful"]
+                
+                logger.info(f"Batch {batch_num} completed: {batch_results['successful']} successful, {batch_results['failed']} failed")
+                
+            except Exception as e:
+                logger.error(f"Batch {batch_num} failed: {e}")
+                # Mark all files in batch as failed
+                for file_path in batch_files:
                     results.append({"file_path": file_path, "status": "failed", "error": str(e)})
         
         # Update progress to complete
@@ -415,7 +458,12 @@ def run_analysis_sync(include_tensorflow=False, max_workers=None, max_files=None
             "total_files": total_files,
             "completed_files": completed_count,
             "results": results,
-            "duration": end_time - start_time
+            "duration": end_time - start_time,
+            "modules_used": {
+                "essentia": enable_essentia,
+                "tensorflow": enable_tensorflow,
+                "faiss": enable_faiss
+            }
         }
         
     except Exception as e:
@@ -567,6 +615,58 @@ async def get_analysis_status():
         "analysis": analysis_progress
     }
 
+@app.get("/analysis/modules/status")
+async def get_analysis_modules_status():
+    """Get status of all analysis modules"""
+    try:
+        from src.playlist_app.services.modular_analysis_service import modular_analysis_service
+        module_status = modular_analysis_service.get_module_status()
+        
+        return {
+            "status": "success",
+            "modules": module_status
+        }
+    except Exception as e:
+        logger.error(f"Failed to get module status: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to get module status: {str(e)}"}
+        )
+
+@app.post("/analysis/modules/toggle")
+async def toggle_analysis_module(module_name: str, enabled: bool):
+    """Toggle an analysis module on/off"""
+    try:
+        from src.playlist_app.core.analysis_config import analysis_config_loader
+        from src.playlist_app.core.config_manager import config_manager
+        
+        # Update configuration
+        if module_name == "essentia":
+            # Essentia is always enabled, but we can update its settings
+            return {"status": "success", "message": "Essentia is always enabled"}
+        elif module_name == "tensorflow":
+            config_manager.update_analysis_config({"modules": {"enable_tensorflow": enabled}})
+        elif module_name == "faiss":
+            config_manager.update_analysis_config({"modules": {"enable_faiss": enabled}})
+        else:
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"Unknown module: {module_name}"}
+            )
+        
+        return {
+            "status": "success",
+            "message": f"Module {module_name} {'enabled' if enabled else 'disabled'}",
+            "module": module_name,
+            "enabled": enabled
+        }
+    except Exception as e:
+        logger.error(f"Failed to toggle module {module_name}: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to toggle module: {str(e)}"}
+        )
+
 @app.get("/config")
 async def get_config():
     """Get current application configuration"""
@@ -649,19 +749,13 @@ async def update_config(request: dict):
             config_manager.save_config("general", data)
                 
         elif section == "discovery":
-            # Update discovery settings
-            if "search_directories" in data:
-                DiscoveryConfig.SEARCH_DIRECTORIES = data["search_directories"]
-            
-            if "supported_extensions" in data:
-                DiscoveryConfig.SUPPORTED_EXTENSIONS = data["supported_extensions"]
-            
-            if "batch_size" in data:
-                DiscoveryConfig.DISCOVERY_BATCH_SIZE = data["batch_size"]
-            
-            # Save to persistent storage
+            # Update discovery settings - now using config_loader
+            # Save to persistent storage first
             from src.playlist_app.core.config_manager import config_manager
             config_manager.save_config("discovery", data)
+            
+            # Reload configurations to apply changes
+            reload_configurations()
                               
         elif section == "analysis":
             # Update analysis configuration
@@ -707,6 +801,9 @@ async def update_config(request: dict):
             from src.playlist_app.core.config_manager import config_manager
             config_manager.save_config("analysis", data)
             
+            # Reload configurations to apply changes
+            reload_configurations()
+            
         elif section == "database":
             # Update database settings
             if "database_url" in data:
@@ -718,6 +815,9 @@ async def update_config(request: dict):
             # Save to persistent storage
             from src.playlist_app.core.config_manager import config_manager
             config_manager.save_config("database", data)
+            
+            # Reload configurations to apply changes
+            reload_configurations()
         
         elif section == "external":
             # Update external APIs configuration
@@ -732,6 +832,9 @@ async def update_config(request: dict):
             # Save to persistent storage
             from src.playlist_app.core.config_manager import config_manager
             config_manager.save_config("external", data)
+            
+            # Reload configurations to apply changes
+            reload_configurations()
         
         elif section == "logging":
             # Update logging configuration
@@ -754,7 +857,19 @@ async def update_config(request: dict):
             # Save to persistent storage
             from src.playlist_app.core.config_manager import config_manager
             config_manager.save_config("logging", data)
+            
+            # Reload configurations to apply changes
+            reload_configurations()
         
+        elif section == "app_settings":
+            # Update app settings
+            # Save to persistent storage
+            from src.playlist_app.core.config_manager import config_manager
+            config_manager.save_config("app_settings", data)
+            
+            # Reload configurations to apply changes
+            reload_configurations()
+            
         elif section == "performance":
             # Update performance configuration
             from src.playlist_app.core.analysis_config import analysis_config_loader
@@ -779,6 +894,9 @@ async def update_config(request: dict):
             # Save to persistent storage
             from src.playlist_app.core.config_manager import config_manager
             config_manager.save_config("performance", data)
+            
+            # Reload configurations to apply changes
+            reload_configurations()
         
         return {
             "status": "success",

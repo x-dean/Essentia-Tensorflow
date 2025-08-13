@@ -21,7 +21,7 @@ const Tracks: React.FC = () => {
     queryFn: async () => {
       // For now, get all tracks and filter client-side
       // In a real app, you'd want server-side filtering
-      const response = await getTracks(1000, 0, false, false, 'summary');
+      const response = await getTracks(1000, 0, false, false, 'detailed');
       
       let filteredTracks = response.tracks || [];
       
@@ -61,7 +61,7 @@ const Tracks: React.FC = () => {
   // Get basic stats for summary
   const { data: statsData } = useQuery({
     queryKey: ['tracks-summary'],
-    queryFn: () => getTracks(1000, 0, false, false, 'summary'),
+    queryFn: () => getTracks(1000, 0, false, false, 'detailed'),
     refetchInterval: 30000,
   });
 
@@ -539,6 +539,29 @@ const Tracks: React.FC = () => {
                           <div><span className="font-medium">Analyzed:</span> {new Date(selectedTrack.analysis_timestamp).toLocaleString()}</div>
                         )}
                       </div>
+                   </div>
+                 )}
+
+                 {/* MusicNN Predictions */}
+                 {selectedTrack.analysis?.complete_analysis?.musicnn && (
+                   <div>
+                     <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">MusicNN Predictions</h4>
+                     <div className="text-xs text-gray-900 dark:text-white">
+                       <div className="mb-2">
+                         <span className="font-medium">Top Genres & Moods:</span>
+                       </div>
+                       <div className="grid grid-cols-1 gap-1">
+                         {Object.entries(selectedTrack.analysis.complete_analysis.musicnn)
+                           .sort(([,a], [,b]) => (b as number) - (a as number))
+                           .slice(0, 10)
+                           .map(([tag, probability]) => (
+                             <div key={tag} className="flex justify-between items-center">
+                               <span className="capitalize">{tag.replace(/_/g, ' ')}</span>
+                               <span className="font-medium">{((probability as number) * 100).toFixed(1)}%</span>
+                             </div>
+                           ))}
+                       </div>
+                     </div>
                    </div>
                  )}
 

@@ -18,7 +18,7 @@ The analysis configuration is stored in `config/analysis_config.json` and is org
 - **window_type**: Window function type (default: "hann")
 - **zero_padding**: Additional zero padding (default: 0)
 
-**⚠️ IMPORTANT**: Reducing `frame_size` and `hop_size` will **decrease accuracy**, not improve performance. These values are optimized for spectral analysis quality.
+**️ IMPORTANT**: Reducing `frame_size` and `hop_size` will **decrease accuracy**, not improve performance. These values are optimized for spectral analysis quality.
 
 #### Spectral Analysis
 - **min_frequency**: Minimum frequency for analysis (default: 20.0 Hz)
@@ -113,7 +113,7 @@ The analysis is CPU-intensive and involves:
 2. **Essentia algorithms** for feature extraction
 3. **Database operations** for storing results
 
-### ⚠️ CRITICAL: What NOT to Change for Performance
+### ️ CRITICAL: What NOT to Change for Performance
 
 **DO NOT reduce these values** as they will **decrease accuracy**:
 
@@ -121,7 +121,7 @@ The analysis is CPU-intensive and involves:
 - **hop_size**: Keep at 1024 for good temporal resolution
 - **sample_rate**: Keep at 44100Hz for full frequency range
 
-### ✅ SAFE Performance Optimizations
+###  SAFE Performance Optimizations
 
 #### 1. **Parallel Processing** (Most Effective)
 ```json
@@ -170,7 +170,7 @@ The analysis is CPU-intensive and involves:
 }
 ```
 
-### 🎯 Accuracy vs Speed Trade-offs
+###  Accuracy vs Speed Trade-offs
 
 #### **High Accuracy Profile** (Slower):
 ```json
@@ -272,25 +272,25 @@ The analysis is CPU-intensive and involves:
 ### Common Issues
 
 1. **Analysis taking too long**
-   - ✅ Increase `max_workers` (up to CPU core count)
-   - ✅ Enable `smart_segmentation`
-   - ✅ Disable complex algorithms
-   - ❌ Don't reduce `frame_size` or `hop_size`
+   -  Increase `max_workers` (up to CPU core count)
+   -  Enable `smart_segmentation`
+   -  Disable complex algorithms
+   -  Don't reduce `frame_size` or `hop_size`
 
 2. **Memory errors**
-   - ✅ Enable `use_ffmpeg_streaming`
-   - ✅ Reduce `memory_limit_mb`
-   - ✅ Use `smart_segmentation`
-   - ❌ Don't reduce `frame_size` or `hop_size`
+   -  Enable `use_ffmpeg_streaming`
+   -  Reduce `memory_limit_mb`
+   -  Use `smart_segmentation`
+   -  Don't reduce `frame_size` or `hop_size`
 
 3. **Database connection errors**
-   - ✅ Reduce `max_workers` to avoid connection pool exhaustion
-   - ✅ Increase database connection pool size
+   -  Reduce `max_workers` to avoid connection pool exhaustion
+   -  Increase database connection pool size
 
 4. **Files failing analysis**
-   - ✅ Check file format support
-   - ✅ Increase `timeout_per_file`
-   - ✅ Enable `retry_failed`
+   -  Check file format support
+   -  Increase `timeout_per_file`
+   -  Enable `retry_failed`
 
 ### Monitoring
 
