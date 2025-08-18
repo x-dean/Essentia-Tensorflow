@@ -18,7 +18,7 @@
     },
     "track_analysis": {
       "min_track_length": 1.0,
-      "max_track_length": 600.0,
+      "max_track_length": 7200.0,
       "chunk_duration": 45.0,
       "overlap_ratio": 0.5
     },
@@ -36,8 +36,8 @@
   },
   "performance": {
     "parallel_processing": {
-      "max_workers": 4,
-      "chunk_size": 20,
+      "max_workers": 8,
+      "chunk_size": 50,
       "timeout_per_file": 300,
       "memory_limit_mb": 512
     },
@@ -50,7 +50,7 @@
       "use_ffmpeg_streaming": true,
       "smart_segmentation": true,
       "skip_existing_analysis": true,
-      "batch_size": 50
+      "batch_size": 100
     }
   },
   "analysis_strategies": {

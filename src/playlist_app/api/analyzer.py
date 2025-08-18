@@ -109,7 +109,7 @@ async def get_analyzer_status():
             faiss_version = None
         
         # Get analysis configuration
-        analysis_config = analysis_config_loader.get_analysis_config()
+        analysis_config = analysis_config_loader.get_config()
         
         return {
             "status": "operational",
@@ -146,6 +146,7 @@ async def get_analyzer_status():
 class AnalyzeFileRequest(BaseModel):
     file_path: str
     include_tensorflow: bool = True
+    force_reanalyze: bool = False
 
 class AnalyzeFilesRequest(BaseModel):
     file_paths: List[str]
@@ -305,15 +306,14 @@ async def get_length_categories():
 
 @router.post("/analyze-file")
 async def analyze_file(
-    request: AnalyzeFileRequest,
-    db: Session = Depends(get_db)
+    request: AnalyzeFileRequest
 ):
     """Analyze a single audio file using Essentia"""
     try:
         result = audio_analysis_service.analyze_file(
-            db, 
             request.file_path, 
-            request.include_tensorflow
+            request.include_tensorflow,
+            request.force_reanalyze
         )
         return {
             "status": "success",

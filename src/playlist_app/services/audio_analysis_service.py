@@ -9,7 +9,8 @@ from contextlib import contextmanager
 from sqlalchemy.orm import Session
 from ..models.database import File, AudioAnalysis, AudioMetadata, get_db_session, close_db_session, FileStatus
 from ..core.logging import get_logger
-from .essentia_analyzer import essentia_analyzer, safe_json_serialize, EssentiaConfig
+from .essentia_analyzer import essentia_analyzer, safe_json_serialize
+from ..core.analysis_config import AnalysisConfig
 from .faiss_service import faiss_service
 
 logger = logging.getLogger(__name__)
@@ -21,7 +22,7 @@ class AudioAnalysisService:
     Handles analysis persistence, retrieval, and batch processing.
     """
     
-    def __init__(self, config: Optional[EssentiaConfig] = None):
+    def __init__(self, config: Optional[AnalysisConfig] = None):
         self.analyzer = essentia_analyzer
         if config:
             self.analyzer.config = config
@@ -112,7 +113,7 @@ class AudioAnalysisService:
                 
                 # Perform analysis with category-specific strategy
                 logger.info(f"Starting analysis for {file_path} (category: {category})")
-                analysis_results = self.analyzer.analyze_audio_file(file_path, include_tensorflow, category)
+                analysis_results = self.analyzer.analyze_audio_file(file_path)
                 
                 # Store in database
                 analysis_record = self._store_analysis_in_db(db, file_record.id, analysis_results)

@@ -20,9 +20,7 @@ COPY tests/ ./tests/
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Copy wrapper script
-COPY playlist /usr/local/bin/playlist
-RUN chmod +x /usr/local/bin/playlist
+# Wrapper script symlinks are created below
 
 # Fix line endings and make scripts executable
 RUN find scripts/ -name "*.py" -exec sed -i 's/\r$//' {} \; && \

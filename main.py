@@ -256,7 +256,7 @@ async def lifespan(app: FastAPI):
         logger.info(f"Loaded database configuration: pool_size={db_config.get('pool_size', 25)}")
         
         # Load analysis settings
-        analysis_config = config_loader.get_analysis_config()
+        analysis_config = config_loader.get_config("analysis_config")
         logger.info(f"Loaded analysis configuration: max_workers={analysis_config.get('performance', {}).get('parallel_processing', {}).get('max_workers', 8)}")
         
         logger.info("Configuration loading completed")
@@ -676,7 +676,7 @@ async def get_config():
             "app_settings": config_loader.get_app_settings(),
             "database": config_loader.get_database_config(),
             "logging": config_loader.get_logging_config(),
-            "analysis_config": config_loader.get_analysis_config(),
+            "analysis_config": config_loader.get_config("analysis_config"),
             "discovery": config_loader.get_discovery_config()
         }
         

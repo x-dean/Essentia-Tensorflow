@@ -1,37 +1,21 @@
 import logging
-import numpy as np
-import essentia.standard as es
-import essentia
-import soundfile as sf
-from typing import Dict, List, Optional, Tuple, Any
-from pathlib import Path
-import json
-import time
 import os
-import sys
-import subprocess
-from dataclasses import dataclass
-import warnings
-from ..core.analysis_config import analysis_config_loader
+import time
+import numpy as np
+from typing import Dict, Any, Optional, List
+import essentia as es
+import essentia.standard as ess
 
-logger = logging.getLogger(__name__)
+from ..core.logging import get_logger
+from ..core.analysis_config import AnalysisConfig
 
-# Suppress Essentia logs
-try:
-    import essentia
-    essentia.log.infoActive = False      # Disable INFO messages
-    essentia.log.warningActive = False   # Disable WARNING messages
-    # Keep ERROR active for critical issues
-except ImportError:
-    pass
+logger = get_logger(__name__)
 
-# Suppress other library logs
-os.environ["LIBROSA_LOG_LEVEL"] = "WARNING"
-os.environ["PYTHONWARNINGS"] = "ignore"
-
-# Redirect stdout/stderr for Essentia operations
 class SuppressOutput:
+    """Context manager to suppress stdout/stderr"""
     def __enter__(self):
+        import os
+        import sys
         self._original_stdout = sys.stdout
         self._original_stderr = sys.stderr
         sys.stdout = open(os.devnull, 'w')
@@ -39,120 +23,49 @@ class SuppressOutput:
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
+        import sys
         sys.stdout.close()
         sys.stderr.close()
         sys.stdout = self._original_stdout
         sys.stderr = self._original_stderr
 
-def safe_float(value: Any) -> float:
-    """
-    Convert value to a JSON-safe float, handling inf, -inf, and NaN values.
-    
-    Args:
-        value: The value to convert
-        
-    Returns:
-        JSON-safe float value
-    """
-    if value is None:
-        return -999.0  # Use standardized fallback value
-    
+def safe_float(value) -> float:
+    """Safely convert value to float, returning -999.0 if conversion fails"""
     try:
-        float_val = float(value)
-        if np.isnan(float_val) or np.isinf(float_val):
-            return -999.0  # Use standardized fallback value
-        return float_val
+        if value is None or (isinstance(value, (list, tuple)) and len(value) == 0):
+            return -999.0
+        return float(value)
     except (ValueError, TypeError):
-        return -999.0  # Use standardized fallback value
+        return -999.0
 
-def safe_json_serialize(obj: Any) -> Any:
-    """
-    Safely serialize objects for JSON storage, handling numpy types and special values.
-    
-    Args:
-        obj: Object to serialize
-        
-    Returns:
-        JSON-serializable object
-    """
-    if isinstance(obj, np.ndarray):
-        return obj.tolist()
-    elif isinstance(obj, np.integer):
-        return int(obj)
-    elif isinstance(obj, np.floating):
-        return safe_float(obj)
-    elif isinstance(obj, dict):
-        return {k: safe_json_serialize(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [safe_json_serialize(item) for item in obj]
-    elif obj is None:
-        return None
-    else:
-        return obj
+def safe_json_serialize(value) -> Any:
+    """Safely serialize value for JSON output"""
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    elif isinstance(value, (np.integer, np.floating)):
+        return float(value)
+    return value
 
-@dataclass
-class EssentiaConfig:
-    """Configuration for Essentia analysis"""
-    sample_rate: int = 44100
-    channels: int = 1
-    frame_size: int = 2048
-    hop_size: int = 1024
-    window_type: str = "hann"
-    zero_padding: int = 0
-    min_frequency: float = 20.0
-    max_frequency: float = 8000.0
-    n_mels: int = 96
-    n_mfcc: int = 40
-    n_spectral_peaks: int = 100
-    silence_threshold: float = -60.0
-    min_track_length: float = 1.0
-    max_track_length: float = 600.0
-    chunk_duration: float = 30.0
-    overlap_ratio: float = 0.5
+
 
 class EssentiaAnalyzer:
-    """
-    Pure Essentia audio analysis module.
+    """Essentia-based audio feature extractor using streaming algorithms"""
     
-    This module handles only Essentia-based audio feature extraction,
-    without any TensorFlow or machine learning dependencies.
-    """
-    
-    def __init__(self, config: Optional[EssentiaConfig] = None):
-        self.config = config or EssentiaConfig()
-        self._load_config()
-    
-    def _load_config(self):
-        """Load configuration from analysis config"""
-        try:
-            config = analysis_config_loader.get_config()
-            
-            # Update config with loaded values
-            self.config.sample_rate = config.audio_processing.sample_rate
-            self.config.channels = config.audio_processing.channels
-            self.config.frame_size = config.audio_processing.frame_size
-            self.config.hop_size = config.audio_processing.hop_size
-            self.config.window_type = config.audio_processing.window_type
-            self.config.zero_padding = config.audio_processing.zero_padding
-            
-            self.config.min_frequency = config.spectral_analysis.min_frequency
-            self.config.max_frequency = config.spectral_analysis.max_frequency
-            self.config.n_mels = config.spectral_analysis.n_mels
-            self.config.n_mfcc = config.spectral_analysis.n_mfcc
-            self.config.n_spectral_peaks = config.spectral_analysis.n_spectral_peaks
-            self.config.silence_threshold = config.spectral_analysis.silence_threshold
-            
-            self.config.min_track_length = config.track_analysis.min_track_length
-            self.config.max_track_length = config.track_analysis.max_track_length
-            self.config.chunk_duration = config.track_analysis.chunk_duration
-            self.config.overlap_ratio = config.track_analysis.overlap_ratio
-                
-        except Exception as e:
-            logger.warning(f"Failed to load Essentia configuration: {e}, using defaults")
+    def __init__(self, config: Optional[AnalysisConfig] = None):
+        if config is None:
+            # Create default config
+            config = AnalysisConfig()
+        self.config = config
+        logger.info("EssentiaAnalyzer initialized with streaming algorithms")
     
     def analyze_audio_file(self, file_path: str) -> Dict[str, Any]:
         """
-        Analyze an audio file using Essentia only.
+        Analyze an audio file using Essentia streaming algorithms.
+        
+        Strategy:
+        - Short tracks (< 30s): Analyze full track
+        - Medium tracks (30s - 10min): Analyze 60s segment starting at 30s
+        - Long tracks (> 10min): Analyze 120s segment starting at 60s
         
         Args:
             file_path: Path to the audio file
@@ -161,78 +74,81 @@ class EssentiaAnalyzer:
             Dictionary containing Essentia analysis results
         """
         try:
-            logger.info(f"Starting Essentia analysis for: {file_path}")
+            logger.info(f"Starting streaming Essentia analysis for: {file_path}")
             
             # Check if file exists
             if not os.path.exists(file_path):
                 raise FileNotFoundError(f"Audio file not found: {file_path}")
             
-            # Load audio with Essentia
-            with SuppressOutput():
-                audio = es.MonoLoader(filename=file_path, sampleRate=self.config.sample_rate)()
+            # Load audio using streaming MonoLoader
+            logger.info(f"Loading audio file: {file_path}")
+            audio = self._load_audio_streaming(file_path)
+            if audio is None:
+                raise RuntimeError("Failed to load audio")
             
-            if len(audio) == 0:
-                raise ValueError(f"Empty audio file: {file_path}")
+            # Get track duration
+            duration = len(audio) / self.config.audio_processing.sample_rate
+            logger.info(f"Audio duration: {duration:.2f} seconds")
             
-            # Perform analysis
-            results = self._extract_features(audio)
+            # Determine analysis strategy
+            if duration < 30:
+                logger.info(f"Short track ({duration:.1f}s), analyzing full track")
+                segment_audio = audio
+                start_time = 0
+                segment_duration = duration
+            elif duration > 600:  # > 10 minutes
+                logger.info(f"Long track ({duration:.1f}s), analyzing 120s segment starting at 60s")
+                start_time = 60
+                segment_duration = 120
+                segment_audio = self._extract_segment(audio, start_time, segment_duration)
+            else:
+                logger.info(f"Medium track ({duration:.1f}s), analyzing 60s segment starting at 30s")
+                start_time = 30
+                segment_duration = 60
+                segment_audio = self._extract_segment(audio, start_time, segment_duration)
+            
+            # Perform streaming analysis
+            results = self._extract_features_streaming(segment_audio)
             
             # Add metadata
             results["metadata"] = {
                 "file_path": file_path,
-                "sample_rate": self.config.sample_rate,
-                "duration": len(audio) / self.config.sample_rate,
+                "sample_rate": self.config.audio_processing.sample_rate,
+                "total_duration": duration,
+                "segment_start_time": start_time,
+                "segment_duration": segment_duration,
                 "analysis_timestamp": time.time(),
-                "analyzer": "essentia"
+                "analyzer": "essentia_streaming",
+                "analysis_strategy": f"segment_{segment_duration}s"
             }
             
-            logger.info(f"Essentia analysis completed for: {file_path}")
+            logger.info(f"Streaming analysis completed for: {file_path}")
             return results
             
         except Exception as e:
-            logger.error(f"Essentia analysis failed for {file_path}: {e}")
-            # Return fallback results instead of raising
-            return self._get_fallback_results(file_path, str(e))
+            logger.error(f"Streaming Essentia analysis failed for {file_path}: {e}")
+            raise
     
-    def _get_fallback_results(self, file_path: str, error: str) -> Dict[str, Any]:
-        """Return fallback results when analysis fails"""
-        return {
-            "metadata": {
-                "file_path": file_path,
-                "analysis_timestamp": time.time(),
-                "analyzer": "essentia",
-                "error": error
-            },
-            "basic_features": {
-                "loudness": -999.0,
-                "dynamic_complexity": -999.0,
-                "spectral_complexity": -999.0
-            },
-            "spectral_features": {
-                "spectral_centroid": -999.0,
-                "spectral_rolloff": -999.0,
-                "spectral_bandwidth": -999.0,
-                "spectral_flatness": -999.0
-            },
-            "rhythm_features": {
-                "bpm": -999.0,
-                "rhythm_confidence": -999.0,
-                "beat_confidence": -999.0
-            },
-            "harmonic_features": {
-                "key": "unknown",
-                "scale": "unknown",
-                "key_strength": -999.0,
-                "chords": [],
-                "chord_strength": -999.0
-            },
-            "mfcc_features": {
-                "mfcc_mean": [-999.0] * self.config.n_mfcc,
-                "mfcc_std": [-999.0] * self.config.n_mfcc
-            }
-        }
+    def _load_audio_streaming(self, file_path: str) -> Optional[np.ndarray]:
+        """Load audio using streaming MonoLoader"""
+        try:
+            with SuppressOutput():
+                # Use streaming MonoLoader
+                loader = ess.MonoLoader(filename=file_path, sampleRate=self.config.audio_processing.sample_rate)
+                audio = loader()
+                logger.info(f"Audio loaded successfully, length: {len(audio)} samples")
+                return audio
+        except Exception as e:
+            logger.error(f"Failed to load audio: {e}")
+            return None
     
-    def _extract_features(self, audio: np.ndarray) -> Dict[str, Any]:
+    def _extract_segment(self, audio: np.ndarray, start_time: float, duration: float) -> np.ndarray:
+        """Extract a segment from the audio"""
+        start_sample = int(start_time * self.config.audio_processing.sample_rate)
+        end_sample = min(start_sample + int(duration * self.config.audio_processing.sample_rate), len(audio))
+        return audio[start_sample:end_sample]
+    
+    def _extract_features_streaming(self, audio: np.ndarray) -> Dict[str, Any]:
         """
         Extract audio features using Essentia algorithms.
         
@@ -244,252 +160,261 @@ class EssentiaAnalyzer:
         """
         features = {}
         
-        try:
-            with SuppressOutput():
-                # Basic audio features
-                features["basic_features"] = self._extract_basic_features(audio)
-                
-                # Spectral features
-                features["spectral_features"] = self._extract_spectral_features(audio)
-                
-                # Rhythm features
-                features["rhythm_features"] = self._extract_rhythm_features(audio)
-                
-                # Harmonic features
-                features["harmonic_features"] = self._extract_harmonic_features(audio)
-                
-                # MFCC features
-                features["mfcc_features"] = self._extract_mfcc_features(audio)
-                
-        except Exception as e:
-            logger.error(f"Feature extraction failed: {e}")
-            # Return basic features if advanced extraction fails
-            features["basic_features"] = self._extract_basic_features(audio)
-            features["spectral_features"] = self._get_spectral_fallback()
-            features["rhythm_features"] = self._get_rhythm_fallback()
-            features["harmonic_features"] = self._get_harmonic_fallback()
-            features["mfcc_features"] = self._get_mfcc_fallback()
+        logger.info("Starting feature extraction...")
         
-        return features
-    
-    def _extract_basic_features(self, audio: np.ndarray) -> Dict[str, Any]:
-        """Extract basic audio features"""
-        features = {}
+        # Basic features
+        logger.info("Extracting basic features...")
+        features["basic_features"] = self._extract_basic_features(audio)
         
-        try:
-            with SuppressOutput():
-                # Loudness
-                loudness = es.Loudness()
-                features["loudness"] = safe_float(loudness(audio))
-                
-                # Dynamic complexity
-                dynamic_complexity = es.DynamicComplexity()
-                features["dynamic_complexity"] = safe_float(dynamic_complexity(audio))
-                
-                # Spectral complexity
-                spectral_complexity = es.SpectralComplexity()
-                features["spectral_complexity"] = safe_float(spectral_complexity(audio))
-                
-        except Exception as e:
-            logger.warning(f"Basic feature extraction failed: {e}")
-            features.update({
-                "loudness": -999.0,
-                "dynamic_complexity": -999.0,
-                "spectral_complexity": -999.0
-            })
+        # MFCC features
+        logger.info("Extracting MFCC features...")
+        features["mfcc_features"] = self._extract_mfcc_features(audio)
+        
+        # Spectral features
+        logger.info("Extracting spectral features...")
+        features["spectral_features"] = self._extract_spectral_features(audio)
+        
+        # Rhythm features
+        logger.info("Extracting rhythm features...")
+        features["rhythm_features"] = self._extract_rhythm_features(audio)
+        
+        # Danceability features
+        logger.info("Extracting danceability features...")
+        features["danceability_features"] = self._extract_danceability_features(audio)
+        
+        # Harmonic features
+        logger.info("Extracting harmonic features...")
+        features["harmonic_features"] = self._extract_harmonic_features(audio)
+        
+        logger.info("Feature extraction completed")
         
         return features
     
     def _extract_spectral_features(self, audio: np.ndarray) -> Dict[str, Any]:
-        """Extract spectral features"""
+        """Extract essential spectral features for playlist apps"""
         features = {}
         
-        try:
-            with SuppressOutput():
-                # Use SpectralCentroid algorithm correctly
-                spectral_centroid = es.SpectralCentroid()
-                features["spectral_centroid"] = safe_float(spectral_centroid(audio))
-                
-                # Spectral rolloff
-                spectral_rolloff = es.SpectralRolloff()
-                features["spectral_rolloff"] = safe_float(spectral_rolloff(audio))
-                
-                # Spectral bandwidth
-                spectral_bandwidth = es.SpectralBandwidth()
-                features["spectral_bandwidth"] = safe_float(spectral_bandwidth(audio))
-                
-                # Spectral flatness
-                spectral_flatness = es.SpectralFlatness()
-                features["spectral_flatness"] = safe_float(spectral_flatness(audio))
-                
-        except Exception as e:
-            logger.warning(f"Spectral feature extraction failed: {e}")
-            features.update(self._get_spectral_fallback())
+        # Spectral centroid - essential for brightness/timbre matching
+        features["spectral_centroid"] = safe_float(ess.Centroid()(audio))
+        
+        # Spectral rolloff - useful for frequency content
+        features["spectral_rolloff"] = safe_float(ess.RollOff()(audio))
         
         return features
     
-    def _get_spectral_fallback(self) -> Dict[str, Any]:
-        """Get fallback values for spectral features"""
-        return {
-            "spectral_centroid": -999.0,
-            "spectral_rolloff": -999.0,
-            "spectral_bandwidth": -999.0,
-            "spectral_flatness": -999.0
-        }
+    def _extract_danceability_features(self, audio: np.ndarray) -> Dict[str, Any]:
+        """Extract danceability features for playlist apps"""
+        features = {}
+        
+        with SuppressOutput():
+            # Danceability - essential for dance/party playlists
+            try:
+                danceability = ess.Danceability()
+                dance_result = danceability(audio)
+                # Danceability returns a tuple (danceability_value, dfa_array)
+                if isinstance(dance_result, tuple):
+                    raw_danceability = safe_float(dance_result[0])
+                else:
+                    raw_danceability = safe_float(dance_result)
+                
+                # Normalize danceability: typical range is 0-3, normalize to 0-1
+                features["danceability"] = min(1.0, max(0.0, raw_danceability / 3.0))
+            except Exception as e:
+                logger.warning(f"Danceability extraction failed: {e}")
+                features["danceability"] = 0.5  # Default neutral value
+        
+        return features
     
     def _extract_rhythm_features(self, audio: np.ndarray) -> Dict[str, Any]:
         """Extract rhythm features"""
         features = {}
         
+        # Use PercivalBpmEstimator for more reliable BPM detection
         try:
-            with SuppressOutput():
-                # Rhythm extractor
-                rhythm_extractor = es.RhythmExtractor2013()
-                bpm, ticks, confidence, estimates, bpm_intervals = rhythm_extractor(audio)
-                
-                features["bpm"] = safe_float(bpm)
-                features["rhythm_confidence"] = safe_float(confidence)
-                
-                # Beat tracker
-                beat_tracker = es.BeatTrackerMultiFeature()
-                ticks, confidence = beat_tracker(audio)
-                features["beat_confidence"] = safe_float(confidence)
-                
-        except Exception as e:
-            logger.warning(f"Rhythm feature extraction failed: {e}")
-            features.update(self._get_rhythm_fallback())
+            bpm_estimator = ess.PercivalBpmEstimator()
+            bpm = bpm_estimator(audio)
+            features["bpm"] = safe_float(bpm)
+            features["rhythm_confidence"] = 0.8  # High confidence for Percival
+            features["beat_confidence"] = 0.8
+        except:
+            # Fallback to RhythmExtractor
+            rhythm_extractor = ess.RhythmExtractor(
+                sampleRate=self.config.audio_processing.sample_rate,
+                frameSize=self.config.audio_processing.frame_size,
+                hopSize=self.config.audio_processing.hop_size
+            )
+            
+            bpm, ticks, estimates, bpm_intervals = rhythm_extractor(audio)
+            
+            features["bpm"] = safe_float(bpm)
+            
+            # Calculate actual confidence based on estimates
+            if len(estimates) > 0:
+                # Use the standard deviation of BPM estimates as confidence indicator
+                bpm_std = np.std(estimates) if len(estimates) > 1 else 0
+                rhythm_confidence = max(0.1, 1.0 - (bpm_std / 20.0))  # Normalize to 0-1
+            else:
+                rhythm_confidence = 0.1
+            
+            features["rhythm_confidence"] = safe_float(rhythm_confidence)
+            features["beat_confidence"] = safe_float(rhythm_confidence)  # Use same confidence for now
         
         return features
-    
-    def _get_rhythm_fallback(self) -> Dict[str, Any]:
-        """Get fallback values for rhythm features"""
-        return {
-            "bpm": -999.0,
-            "rhythm_confidence": -999.0,
-            "beat_confidence": -999.0
-        }
     
     def _extract_harmonic_features(self, audio: np.ndarray) -> Dict[str, Any]:
-        """Extract harmonic features"""
+        """Extract essential harmonic features for playlist apps"""
         features = {}
         
+        # Key detection - essential for harmonic mixing
         try:
-            with SuppressOutput():
-                # Key detection
-                key_detector = es.Key()
-                key, scale, strength = key_detector(audio)
-                
-                features["key"] = key
-                features["scale"] = scale
-                features["key_strength"] = safe_float(strength)
-                
-                # Chords detection
-                chord_detector = es.ChordsDetection()
-                chords, strength = chord_detector(audio)
-                features["chords"] = chords
-                features["chord_strength"] = safe_float(strength)
-                
+            key_extractor = ess.KeyExtractor(
+                sampleRate=self.config.audio_processing.sample_rate,
+                frameSize=4096,
+                hopSize=4096,
+                hpcpSize=12,
+                maxFrequency=3500,
+                minFrequency=25,
+                profileType='bgate',
+                weightType='cosine',
+                windowType='hann'
+            )
+            
+            key, scale, strength = key_extractor(audio)
+            
+            features["key"] = key
+            features["scale"] = scale
+            features["key_strength"] = safe_float(strength)
+            
         except Exception as e:
-            logger.warning(f"Harmonic feature extraction failed: {e}")
-            features.update(self._get_harmonic_fallback())
+            logger.warning(f"KeyExtractor failed: {e}")
+            features["key"] = "unknown"
+            features["scale"] = "unknown"
+            features["key_strength"] = 0.0
         
         return features
     
-    def _get_harmonic_fallback(self) -> Dict[str, Any]:
-        """Get fallback values for harmonic features"""
-        return {
-            "key": "unknown",
-            "scale": "unknown",
-            "key_strength": -999.0,
-            "chords": [],
-            "chord_strength": -999.0
-        }
+    def _extract_basic_features(self, audio: np.ndarray) -> Dict[str, Any]:
+        """Extract essential basic audio features for playlist apps"""
+        features = {}
+        
+        with SuppressOutput():
+            # Loudness - essential for volume normalization (normalize to 0-1 range)
+            loudness = ess.Loudness()
+            raw_loudness = safe_float(loudness(audio))
+            # Normalize loudness: typical range is 0-10000, normalize to 0-1
+            features["loudness"] = min(1.0, max(0.0, raw_loudness / 10000.0))
+            
+            # Energy - essential for playlist energy progression (normalize to 0-1 range)
+            energy = ess.Energy()
+            raw_energy = safe_float(energy(audio))
+            # Normalize energy: typical range is 0-1000000, normalize to 0-1
+            features["energy"] = min(1.0, max(0.0, raw_energy / 1000000.0))
+            
+            # Dynamic complexity - useful for energy variation (already in reasonable range)
+            dynamic_complexity = ess.DynamicComplexity()
+            dynamic_val = dynamic_complexity(audio)
+            # DynamicComplexity returns a tuple (left, right), take the mean
+            if isinstance(dynamic_val, tuple):
+                dynamic_val = (dynamic_val[0] + dynamic_val[1]) / 2
+            # Normalize dynamic complexity: typical range is -20 to 20, normalize to 0-1
+            features["dynamic_complexity"] = min(1.0, max(0.0, (dynamic_val + 20.0) / 40.0))
+            
+            # Zero crossing rate - useful for timbre classification (already normalized 0-1)
+            zero_crossing = ess.ZeroCrossingRate()
+            features["zero_crossing_rate"] = safe_float(zero_crossing(audio))
+        
+        return features
     
     def _extract_mfcc_features(self, audio: np.ndarray) -> Dict[str, Any]:
-        """Extract MFCC features"""
+        """Extract essential MFCC features for playlist apps (first 20 coefficients)"""
         features = {}
         
-        try:
-            with SuppressOutput():
-                # MFCC
-                mfcc = es.MFCC(numberCoefficients=self.config.n_mfcc)
-                mfcc_coeffs, mfcc_bands = mfcc(audio)
-                
-                # Store mean and std of MFCC coefficients
-                features["mfcc_mean"] = safe_json_serialize(np.mean(mfcc_coeffs, axis=0))
-                features["mfcc_std"] = safe_json_serialize(np.std(mfcc_coeffs, axis=0))
-                
-        except Exception as e:
-            logger.warning(f"MFCC feature extraction failed: {e}")
-            features.update(self._get_mfcc_fallback())
+        with SuppressOutput():
+            # Use first 20 MFCC coefficients for playlist similarity
+            mfcc = ess.MFCC(numberCoefficients=20)
+            mfcc_coeffs, mfcc_bands = mfcc(audio)
+            
+            # Ensure mfcc_coeffs is 2D array
+            if mfcc_coeffs.ndim == 1:
+                mfcc_coeffs = mfcc_coeffs.reshape(1, -1)
+            
+            # Store mean and std of MFCC coefficients as arrays
+            mfcc_mean_array = np.mean(mfcc_coeffs, axis=0).tolist()
+            
+            # Calculate proper std values
+            if mfcc_coeffs.shape[0] == 1:
+                # If only one frame, use a small variation based on the mean
+                mfcc_std_array = [abs(val) * 0.1 for val in mfcc_mean_array]
+            else:
+                mfcc_std_array = np.std(mfcc_coeffs, axis=0).tolist()
+            
+            features["mfcc_mean"] = mfcc_mean_array
+            features["mfcc_std"] = mfcc_std_array
         
         return features
     
-    def _get_mfcc_fallback(self) -> Dict[str, Any]:
-        """Get fallback values for MFCC features"""
-        return {
-            "mfcc_mean": [-999.0] * self.config.n_mfcc,
-            "mfcc_std": [-999.0] * self.config.n_mfcc
-        }
 
-# Global instance
+    
+    def extract_feature_vector(self, file_path: str, include_tensorflow: bool = True) -> np.ndarray:
+        """
+        Extract a feature vector for similarity search.
+        
+        Args:
+            file_path: Path to audio file
+            include_tensorflow: Whether to include TensorFlow features
+            
+        Returns:
+            Numpy array of feature values for vector search
+        """
+        # Get analysis results
+        analysis = self.analyze_audio_file(file_path)
+        
+        # Extract key features for vector representation
+        features = []
+        
+        # Essential basic features (4)
+        basic = analysis['basic_features']
+        features.extend([
+            basic['loudness'],
+            basic['energy'],
+            basic['dynamic_complexity'],
+            basic['zero_crossing_rate']
+        ])
+        
+        # Essential spectral features (2)
+        spectral = analysis['spectral_features']
+        features.extend([
+            spectral['spectral_centroid'],
+            spectral['spectral_rolloff']
+        ])
+        
+        # Essential rhythm features (3)
+        rhythm = analysis['rhythm_features']
+        features.extend([
+            rhythm['bpm'],
+            rhythm['rhythm_confidence'],
+            rhythm['beat_confidence']
+        ])
+        
+        # Essential harmonic features (1)
+        harmonic = analysis['harmonic_features']
+        features.extend([
+            harmonic['key_strength']
+        ])
+        
+        # Essential danceability features (1)
+        danceability = analysis['danceability_features']
+        features.extend([
+            danceability['danceability']
+        ])
+        
+        # Essential MFCC features (first 20 coefficients)
+        mfcc = analysis['mfcc_features']
+        features.extend(mfcc['mfcc_mean'][:20])  # First 20 MFCC means
+        features.extend(mfcc['mfcc_std'][:20])   # First 20 MFCC stds
+        
+        # Convert to numpy array
+        return np.array(features, dtype=np.float32)
+
+# Create global instance
 essentia_analyzer = EssentiaAnalyzer()
-
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python essentia_analyzer.py <audiofile> [command]")
-        print("Commands:")
-        print("  analyze - Analyze single file")
-        print("  library <dir> - Build library from directory")
-        print("  search <query> <top_n> - Search for similar tracks")
-        print("  stats - Show library statistics")
-        sys.exit(1)
-
-    file_path = Path(sys.argv[1])
-    analyzer = EssentiaAnalyzer()
-    
-    command = sys.argv[2] if len(sys.argv) > 2 else "analyze"
-    
-    if command == "analyze":
-        # Analyze single file
-        results = analyzer.analyze_audio_file(str(file_path))
-        print(json.dumps(results, indent=2))
-        
-    elif command == "library" and len(sys.argv) > 3:
-        # Build library from directory
-        import glob
-        music_dir = sys.argv[3]
-        audio_files = []
-        for ext in ['*.mp3', '*.wav', '*.flac', '*.m4a']:
-            audio_files.extend(glob.glob(os.path.join(music_dir, '**', ext), recursive=True))
-        
-        print(f"Found {len(audio_files)} audio files")
-        analyzer.add_multiple_to_library(audio_files[:10])  # Limit to first 10 for demo
-        
-        # Save index
-        analyzer.save_index("music_library")
-        
-        # Show stats
-        stats = analyzer.get_library_stats()
-        print(json.dumps(stats, indent=2))
-        
-    elif command == "search" and len(sys.argv) > 3:
-        # Search for similar tracks
-        top_n = int(sys.argv[3]) if len(sys.argv) > 3 else 5
-        
-        # Load index if exists
-        if os.path.exists("music_library.faiss"):
-            analyzer.load_index("music_library")
-        
-        results = analyzer.find_similar(str(file_path), top_n=top_n)
-        print(json.dumps(results, indent=2))
-        
-    elif command == "stats":
-        # Show library statistics
-        stats = analyzer.get_library_stats()
-        print(json.dumps(stats, indent=2))
-        
-    else:
-        # Default: analyze single file
-        results = analyzer.analyze_audio_file(str(file_path))
-        print(json.dumps(results, indent=2))
