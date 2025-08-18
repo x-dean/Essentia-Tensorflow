@@ -62,23 +62,20 @@ class TensorFlowAnalyzer:
         try:
             from ..core.analysis_config import analysis_config_loader
             config = analysis_config_loader.get_config()
-            tf_config = config.get("tensorflow", {})
             
-            # Update config with loaded values
-            self.config.models_directory = tf_config.get("models_directory", self.config.models_directory)
-            self.config.enable_musicnn = tf_config.get("enable_musicnn", self.config.enable_musicnn)
-            self.config.enable_vggish = tf_config.get("enable_vggish", self.config.enable_vggish)
-            self.config.enable_tempo_cnn = tf_config.get("enable_tempo_cnn", self.config.enable_tempo_cnn)
-            self.config.enable_fsd_sinet = tf_config.get("enable_fsd_sinet", self.config.enable_fsd_sinet)
+            # Use the algorithms configuration for TensorFlow settings
+            # TensorFlow is enabled through the algorithms.enable_tensorflow flag
+            self.config.enable_musicnn = config.algorithms.enable_tensorflow
             
-            # Audio processing settings
-            audio_config = tf_config.get("audio_processing", {})
-            self.config.sample_rate = audio_config.get("sample_rate", self.config.sample_rate)
-            self.config.hop_size = audio_config.get("hop_size", self.config.hop_size)
-            self.config.frame_size = audio_config.get("frame_size", self.config.frame_size)
-            self.config.mel_bands = audio_config.get("mel_bands", self.config.mel_bands)
-            self.config.fmin = audio_config.get("fmin", self.config.fmin)
-            self.config.fmax = audio_config.get("fmax", self.config.fmax)
+            # Use audio processing settings from the main config
+            self.config.sample_rate = config.audio_processing.sample_rate
+            self.config.frame_size = config.audio_processing.frame_size
+            self.config.hop_size = config.audio_processing.hop_size
+            
+            # Use spectral analysis settings
+            self.config.mel_bands = config.spectral_analysis.n_mels
+            self.config.fmin = config.spectral_analysis.min_frequency
+            self.config.fmax = config.spectral_analysis.max_frequency
             
         except Exception as e:
             logger.warning(f"Failed to load TensorFlow configuration: {e}, using defaults")
@@ -141,14 +138,30 @@ class TensorFlowAnalyzer:
             Dictionary containing TensorFlow analysis results
         """
         if not self.is_available():
-            raise RuntimeError("TensorFlow analysis not available")
+            return {
+                "tensorflow_analysis": {},
+                "metadata": {
+                    "file_path": file_path,
+                    "analysis_timestamp": time.time(),
+                    "analyzer": "tensorflow",
+                    "error": "TensorFlow analysis not available"
+                }
+            }
         
         try:
             logger.info(f"Starting TensorFlow analysis for: {file_path}")
             
             # Check if file exists
             if not os.path.exists(file_path):
-                raise FileNotFoundError(f"Audio file not found: {file_path}")
+                return {
+                    "tensorflow_analysis": {},
+                    "metadata": {
+                        "file_path": file_path,
+                        "analysis_timestamp": time.time(),
+                        "analyzer": "tensorflow",
+                        "error": f"Audio file not found: {file_path}"
+                    }
+                }
             
             results = {
                 "tensorflow_analysis": {},
@@ -174,7 +187,15 @@ class TensorFlowAnalyzer:
             
         except Exception as e:
             logger.error(f"TensorFlow analysis failed for {file_path}: {e}")
-            raise
+            return {
+                "tensorflow_analysis": {},
+                "metadata": {
+                    "file_path": file_path,
+                    "analysis_timestamp": time.time(),
+                    "analyzer": "tensorflow",
+                    "error": str(e)
+                }
+            }
     
     def _analyze_with_model(self, file_path: str, model_name: str, model) -> Dict[str, Any]:
         """Analyze audio with a specific TensorFlow model"""

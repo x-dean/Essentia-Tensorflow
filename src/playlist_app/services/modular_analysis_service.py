@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Any
 from sqlalchemy.orm import Session
 from contextlib import contextmanager
 from datetime import datetime
+import json
 
 from ..models.database import File, AudioAnalysis, AudioMetadata, get_db_session, close_db_session, FileStatus
 from ..core.logging import get_logger
@@ -198,7 +199,13 @@ class ModularAnalysisService:
             except Exception as e:
                 db.rollback()
                 logger.error(f"Analysis failed for {file_path}: {e}")
-                raise
+                # Return error results instead of raising
+                return {
+                    "file_path": file_path,
+                    "analysis_timestamp": time.time(),
+                    "error": str(e),
+                    "modules_used": []
+                }
     
     def analyze_files_batch(self, file_paths: List[str], enable_essentia: bool = True,
                            enable_tensorflow: bool = False, enable_faiss: bool = False,
@@ -309,44 +316,60 @@ class ModularAnalysisService:
                 analysis_record = AudioAnalysis(file_id=file_record.id)
                 db.add(analysis_record)
             
-            # Store the complete analysis results
-            analysis_record.analysis_data = safe_json_serialize(results)
-            analysis_record.updated_at = datetime.utcnow()
-            
-            # Store individual features if available
+            # Extract features from Essentia results
             if "essentia" in results and "error" not in results["essentia"]:
                 essentia_data = results["essentia"]
                 
-                # Store basic features
-                if "loudness" in essentia_data:
-                    analysis_record.loudness = essentia_data["loudness"]
-                if "bpm" in essentia_data:
-                    analysis_record.tempo = essentia_data["bpm"]
-                if "key" in essentia_data:
-                    analysis_record.key = essentia_data["key"]
-                if "scale" in essentia_data:
-                    analysis_record.scale = essentia_data["scale"]
-                if "key_strength" in essentia_data:
-                    analysis_record.key_strength = essentia_data["key_strength"]
+                # Basic features
+                if "basic_features" in essentia_data:
+                    basic = essentia_data["basic_features"]
+                    analysis_record.loudness = basic.get("loudness", -999.0)
+                    analysis_record.dynamic_complexity = basic.get("dynamic_complexity", -999.0)
+                    analysis_record.spectral_complexity = basic.get("spectral_complexity", -999.0)
+                
+                # Spectral features
+                if "spectral_features" in essentia_data:
+                    spectral = essentia_data["spectral_features"]
+                    analysis_record.spectral_centroid = spectral.get("spectral_centroid", -999.0)
+                    analysis_record.spectral_rolloff = spectral.get("spectral_rolloff", -999.0)
+                    analysis_record.spectral_bandwidth = spectral.get("spectral_bandwidth", -999.0)
+                    analysis_record.spectral_flatness = spectral.get("spectral_flatness", -999.0)
+                
+                # Rhythm features
+                if "rhythm_features" in essentia_data:
+                    rhythm = essentia_data["rhythm_features"]
+                    analysis_record.estimated_bpm = rhythm.get("bpm", -999.0)
+                    analysis_record.rhythm_confidence = rhythm.get("rhythm_confidence", -999.0)
+                    analysis_record.beat_confidence = rhythm.get("beat_confidence", -999.0)
+                
+                # Harmonic features
+                if "harmonic_features" in essentia_data:
+                    harmonic = essentia_data["harmonic_features"]
+                    analysis_record.key = harmonic.get("key", "unknown")
+                    analysis_record.scale = harmonic.get("scale", "unknown")
+                    analysis_record.key_strength = harmonic.get("key_strength", -999.0)
+                    analysis_record.chords = json.dumps(harmonic.get("chords", []))
+                    analysis_record.chord_strength = harmonic.get("chord_strength", -999.0)
+                
+                # MFCC features
+                if "mfcc_features" in essentia_data:
+                    mfcc = essentia_data["mfcc_features"]
+                    analysis_record.mfcc_mean = json.dumps(mfcc.get("mfcc_mean", []))
+                    analysis_record.mfcc_std = json.dumps(mfcc.get("mfcc_std", []))
             
-            # Store TensorFlow results if available
+            # Store TensorFlow results
             if "tensorflow" in results and "error" not in results["tensorflow"]:
-                tensorflow_data = results["tensorflow"]
-                if "tensorflow_analysis" in tensorflow_data:
-                    tf_analysis = tensorflow_data["tensorflow_analysis"]
-                    if "musicnn" in tf_analysis and "error" not in tf_analysis["musicnn"]:
-                        musicnn_data = tf_analysis["musicnn"]
-                        if "top_predictions" in musicnn_data:
-                            # Store top predictions as JSON
-                            analysis_record.musicnn_predictions = safe_json_serialize(
-                                musicnn_data["top_predictions"]
-                            )
+                analysis_record.tensorflow_features = json.dumps(results["tensorflow"])
+            
+            # Store complete analysis as JSON
+            analysis_record.complete_analysis = json.dumps(results)
+            analysis_record.updated_at = datetime.utcnow()
             
             db.commit()
             
         except Exception as e:
+            logger.error(f"Failed to store analysis results for {file_record.file_path}: {e}")
             db.rollback()
-            logger.error(f"Failed to store analysis results: {e}")
             raise
 
 # Global instance

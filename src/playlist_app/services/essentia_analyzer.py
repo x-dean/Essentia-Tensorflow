@@ -55,15 +55,15 @@ def safe_float(value: Any) -> float:
         JSON-safe float value
     """
     if value is None:
-        return 0.0
+        return -999.0  # Use standardized fallback value
     
     try:
         float_val = float(value)
         if np.isnan(float_val) or np.isinf(float_val):
-            return 0.0
+            return -999.0  # Use standardized fallback value
         return float_val
     except (ValueError, TypeError):
-        return 0.0
+        return -999.0  # Use standardized fallback value
 
 def safe_json_serialize(obj: Any) -> Any:
     """
@@ -126,33 +126,26 @@ class EssentiaAnalyzer:
         """Load configuration from analysis config"""
         try:
             config = analysis_config_loader.get_config()
-            essentia_config = config.get("essentia", {})
             
             # Update config with loaded values
-            if "audio_processing" in essentia_config:
-                ap = essentia_config["audio_processing"]
-                self.config.sample_rate = ap.get("sample_rate", self.config.sample_rate)
-                self.config.channels = ap.get("channels", self.config.channels)
-                self.config.frame_size = ap.get("frame_size", self.config.frame_size)
-                self.config.hop_size = ap.get("hop_size", self.config.hop_size)
-                self.config.window_type = ap.get("window_type", self.config.window_type)
-                self.config.zero_padding = ap.get("zero_padding", self.config.zero_padding)
+            self.config.sample_rate = config.audio_processing.sample_rate
+            self.config.channels = config.audio_processing.channels
+            self.config.frame_size = config.audio_processing.frame_size
+            self.config.hop_size = config.audio_processing.hop_size
+            self.config.window_type = config.audio_processing.window_type
+            self.config.zero_padding = config.audio_processing.zero_padding
             
-            if "spectral_analysis" in essentia_config:
-                sa = essentia_config["spectral_analysis"]
-                self.config.min_frequency = sa.get("min_frequency", self.config.min_frequency)
-                self.config.max_frequency = sa.get("max_frequency", self.config.max_frequency)
-                self.config.n_mels = sa.get("n_mels", self.config.n_mels)
-                self.config.n_mfcc = sa.get("n_mfcc", self.config.n_mfcc)
-                self.config.n_spectral_peaks = sa.get("n_spectral_peaks", self.config.n_spectral_peaks)
-                self.config.silence_threshold = sa.get("silence_threshold", self.config.silence_threshold)
+            self.config.min_frequency = config.spectral_analysis.min_frequency
+            self.config.max_frequency = config.spectral_analysis.max_frequency
+            self.config.n_mels = config.spectral_analysis.n_mels
+            self.config.n_mfcc = config.spectral_analysis.n_mfcc
+            self.config.n_spectral_peaks = config.spectral_analysis.n_spectral_peaks
+            self.config.silence_threshold = config.spectral_analysis.silence_threshold
             
-            if "track_analysis" in essentia_config:
-                ta = essentia_config["track_analysis"]
-                self.config.min_track_length = ta.get("min_track_length", self.config.min_track_length)
-                self.config.max_track_length = ta.get("max_track_length", self.config.max_track_length)
-                self.config.chunk_duration = ta.get("chunk_duration", self.config.chunk_duration)
-                self.config.overlap_ratio = ta.get("overlap_ratio", self.config.overlap_ratio)
+            self.config.min_track_length = config.track_analysis.min_track_length
+            self.config.max_track_length = config.track_analysis.max_track_length
+            self.config.chunk_duration = config.track_analysis.chunk_duration
+            self.config.overlap_ratio = config.track_analysis.overlap_ratio
                 
         except Exception as e:
             logger.warning(f"Failed to load Essentia configuration: {e}, using defaults")
@@ -198,7 +191,46 @@ class EssentiaAnalyzer:
             
         except Exception as e:
             logger.error(f"Essentia analysis failed for {file_path}: {e}")
-            raise
+            # Return fallback results instead of raising
+            return self._get_fallback_results(file_path, str(e))
+    
+    def _get_fallback_results(self, file_path: str, error: str) -> Dict[str, Any]:
+        """Return fallback results when analysis fails"""
+        return {
+            "metadata": {
+                "file_path": file_path,
+                "analysis_timestamp": time.time(),
+                "analyzer": "essentia",
+                "error": error
+            },
+            "basic_features": {
+                "loudness": -999.0,
+                "dynamic_complexity": -999.0,
+                "spectral_complexity": -999.0
+            },
+            "spectral_features": {
+                "spectral_centroid": -999.0,
+                "spectral_rolloff": -999.0,
+                "spectral_bandwidth": -999.0,
+                "spectral_flatness": -999.0
+            },
+            "rhythm_features": {
+                "bpm": -999.0,
+                "rhythm_confidence": -999.0,
+                "beat_confidence": -999.0
+            },
+            "harmonic_features": {
+                "key": "unknown",
+                "scale": "unknown",
+                "key_strength": -999.0,
+                "chords": [],
+                "chord_strength": -999.0
+            },
+            "mfcc_features": {
+                "mfcc_mean": [-999.0] * self.config.n_mfcc,
+                "mfcc_std": [-999.0] * self.config.n_mfcc
+            }
+        }
     
     def _extract_features(self, audio: np.ndarray) -> Dict[str, Any]:
         """
@@ -215,24 +247,28 @@ class EssentiaAnalyzer:
         try:
             with SuppressOutput():
                 # Basic audio features
-                features.update(self._extract_basic_features(audio))
+                features["basic_features"] = self._extract_basic_features(audio)
                 
                 # Spectral features
-                features.update(self._extract_spectral_features(audio))
+                features["spectral_features"] = self._extract_spectral_features(audio)
                 
                 # Rhythm features
-                features.update(self._extract_rhythm_features(audio))
+                features["rhythm_features"] = self._extract_rhythm_features(audio)
                 
                 # Harmonic features
-                features.update(self._extract_harmonic_features(audio))
+                features["harmonic_features"] = self._extract_harmonic_features(audio)
                 
                 # MFCC features
-                features.update(self._extract_mfcc_features(audio))
+                features["mfcc_features"] = self._extract_mfcc_features(audio)
                 
         except Exception as e:
             logger.error(f"Feature extraction failed: {e}")
             # Return basic features if advanced extraction fails
-            features = self._extract_basic_features(audio)
+            features["basic_features"] = self._extract_basic_features(audio)
+            features["spectral_features"] = self._get_spectral_fallback()
+            features["rhythm_features"] = self._get_rhythm_fallback()
+            features["harmonic_features"] = self._get_harmonic_fallback()
+            features["mfcc_features"] = self._get_mfcc_fallback()
         
         return features
     
@@ -254,17 +290,12 @@ class EssentiaAnalyzer:
                 spectral_complexity = es.SpectralComplexity()
                 features["spectral_complexity"] = safe_float(spectral_complexity(audio))
                 
-                # Spectral contrast
-                spectral_contrast = es.SpectralContrast()
-                features["spectral_contrast"] = safe_float(spectral_contrast(audio))
-                
         except Exception as e:
             logger.warning(f"Basic feature extraction failed: {e}")
             features.update({
-                "loudness": 0.0,
-                "dynamic_complexity": 0.0,
-                "spectral_complexity": 0.0,
-                "spectral_contrast": 0.0
+                "loudness": -999.0,
+                "dynamic_complexity": -999.0,
+                "spectral_complexity": -999.0
             })
         
         return features
@@ -275,7 +306,7 @@ class EssentiaAnalyzer:
         
         try:
             with SuppressOutput():
-                # Spectral centroid
+                # Use SpectralCentroid algorithm correctly
                 spectral_centroid = es.SpectralCentroid()
                 features["spectral_centroid"] = safe_float(spectral_centroid(audio))
                 
@@ -293,14 +324,18 @@ class EssentiaAnalyzer:
                 
         except Exception as e:
             logger.warning(f"Spectral feature extraction failed: {e}")
-            features.update({
-                "spectral_centroid": 0.0,
-                "spectral_rolloff": 0.0,
-                "spectral_bandwidth": 0.0,
-                "spectral_flatness": 0.0
-            })
+            features.update(self._get_spectral_fallback())
         
         return features
+    
+    def _get_spectral_fallback(self) -> Dict[str, Any]:
+        """Get fallback values for spectral features"""
+        return {
+            "spectral_centroid": -999.0,
+            "spectral_rolloff": -999.0,
+            "spectral_bandwidth": -999.0,
+            "spectral_flatness": -999.0
+        }
     
     def _extract_rhythm_features(self, audio: np.ndarray) -> Dict[str, Any]:
         """Extract rhythm features"""
@@ -322,13 +357,17 @@ class EssentiaAnalyzer:
                 
         except Exception as e:
             logger.warning(f"Rhythm feature extraction failed: {e}")
-            features.update({
-                "bpm": 120.0,
-                "rhythm_confidence": 0.0,
-                "beat_confidence": 0.0
-            })
+            features.update(self._get_rhythm_fallback())
         
         return features
+    
+    def _get_rhythm_fallback(self) -> Dict[str, Any]:
+        """Get fallback values for rhythm features"""
+        return {
+            "bpm": -999.0,
+            "rhythm_confidence": -999.0,
+            "beat_confidence": -999.0
+        }
     
     def _extract_harmonic_features(self, audio: np.ndarray) -> Dict[str, Any]:
         """Extract harmonic features"""
@@ -352,15 +391,19 @@ class EssentiaAnalyzer:
                 
         except Exception as e:
             logger.warning(f"Harmonic feature extraction failed: {e}")
-            features.update({
-                "key": "C",
-                "scale": "major",
-                "key_strength": 0.0,
-                "chords": [],
-                "chord_strength": 0.0
-            })
+            features.update(self._get_harmonic_fallback())
         
         return features
+    
+    def _get_harmonic_fallback(self) -> Dict[str, Any]:
+        """Get fallback values for harmonic features"""
+        return {
+            "key": "unknown",
+            "scale": "unknown",
+            "key_strength": -999.0,
+            "chords": [],
+            "chord_strength": -999.0
+        }
     
     def _extract_mfcc_features(self, audio: np.ndarray) -> Dict[str, Any]:
         """Extract MFCC features"""
@@ -378,12 +421,16 @@ class EssentiaAnalyzer:
                 
         except Exception as e:
             logger.warning(f"MFCC feature extraction failed: {e}")
-            features.update({
-                "mfcc_mean": [0.0] * self.config.n_mfcc,
-                "mfcc_std": [0.0] * self.config.n_mfcc
-            })
+            features.update(self._get_mfcc_fallback())
         
         return features
+    
+    def _get_mfcc_fallback(self) -> Dict[str, Any]:
+        """Get fallback values for MFCC features"""
+        return {
+            "mfcc_mean": [-999.0] * self.config.n_mfcc,
+            "mfcc_std": [-999.0] * self.config.n_mfcc
+        }
 
 # Global instance
 essentia_analyzer = EssentiaAnalyzer()
