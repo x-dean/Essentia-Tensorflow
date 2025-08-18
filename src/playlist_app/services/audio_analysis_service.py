@@ -5,6 +5,8 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 import time
 from contextlib import contextmanager
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
 
 from sqlalchemy.orm import Session
 from ..models.database import File, AudioAnalysis, AudioMetadata, get_db_session, close_db_session, FileStatus
@@ -19,13 +21,28 @@ class AudioAnalysisService:
     """
     Service for managing audio analysis operations with database integration.
     
-    Handles analysis persistence, retrieval, and batch processing.
+    Handles analysis persistence, retrieval, and batch processing with multithreading support.
     """
     
     def __init__(self, config: Optional[AnalysisConfig] = None):
         self.analyzer = essentia_analyzer
         if config:
             self.analyzer.config = config
+        
+        # Threading configuration
+        self.max_workers = 4  # Default, can be overridden
+        self.chunk_size = 10  # Default, can be overridden
+        self.timeout_per_file = 300  # 5 minutes per file
+        
+        # Load threading config if available
+        try:
+            from ..core.analysis_config import analysis_config_loader
+            config = analysis_config_loader.get_config()
+            self.max_workers = config.parallel_processing.max_workers
+            self.chunk_size = config.parallel_processing.chunk_size
+            self.timeout_per_file = config.parallel_processing.timeout_per_file
+        except Exception as e:
+            logger.warning(f"Could not load threading config, using defaults: {e}")
     
     @contextmanager
     def _get_db_session(self):
@@ -199,6 +216,115 @@ class AudioAnalysisService:
         
         logger.info(f"Batch analysis completed: {results['successful']} successful, {results['failed']} failed")
         return results
+    
+    def analyze_files_batch_multithreaded(self, file_paths: List[str], 
+                                        include_tensorflow: bool = True,
+                                        max_workers: Optional[int] = None,
+                                        chunk_size: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Analyze multiple files in parallel using multithreading.
+        
+        Args:
+            file_paths: List of file paths to analyze
+            include_tensorflow: Whether to include TensorFlow model analysis
+            max_workers: Number of worker threads (defaults to config or 4)
+            chunk_size: Number of files to process per chunk (defaults to config or 10)
+            
+        Returns:
+            Batch analysis results with timing information
+        """
+        start_time = time.time()
+        
+        # Use provided parameters or defaults
+        workers = max_workers or self.max_workers
+        chunk_sz = chunk_size or self.chunk_size
+        
+        logger.info(f"Starting multithreaded batch analysis with {workers} workers, chunk size: {chunk_sz}")
+        logger.info(f"Processing {len(file_paths)} files")
+        
+        results = {
+            'total_files': len(file_paths),
+            'successful': 0,
+            'failed': 0,
+            'errors': [],
+            'analysis_results': [],
+            'threading_info': {
+                'max_workers': workers,
+                'chunk_size': chunk_sz,
+                'start_time': start_time
+            }
+        }
+        
+        # Process files in chunks to avoid overwhelming the system
+        for i in range(0, len(file_paths), chunk_sz):
+            chunk = file_paths[i:i + chunk_sz]
+            chunk_start = time.time()
+            
+            logger.info(f"Processing chunk {i//chunk_sz + 1}/{(len(file_paths) + chunk_sz - 1)//chunk_sz}: {len(chunk)} files")
+            
+            # Process chunk with ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                # Submit all files in the chunk
+                future_to_file = {
+                    executor.submit(self._analyze_file_thread_safe, file_path, include_tensorflow): file_path 
+                    for file_path in chunk
+                }
+                
+                # Collect results as they complete
+                for future in as_completed(future_to_file, timeout=self.timeout_per_file * len(chunk)):
+                    file_path = future_to_file[future]
+                    try:
+                        analysis_result = future.result(timeout=self.timeout_per_file)
+                        results['analysis_results'].append({
+                            'file_path': file_path,
+                            'status': 'success',
+                            'result': safe_json_serialize(analysis_result)
+                        })
+                        results['successful'] += 1
+                        logger.info(f"✅ Completed: {file_path}")
+                        
+                    except Exception as e:
+                        error_msg = f"Analysis failed for {file_path}: {str(e)}"
+                        logger.error(error_msg)
+                        results['errors'].append(error_msg)
+                        results['failed'] += 1
+                        results['analysis_results'].append({
+                            'file_path': file_path,
+                            'status': 'failed',
+                            'error': str(e)
+                        })
+                        logger.error(f"❌ Failed: {file_path}")
+            
+            chunk_time = time.time() - chunk_start
+            logger.info(f"Chunk completed in {chunk_time:.2f}s ({len(chunk)} files)")
+        
+        total_time = time.time() - start_time
+        results['threading_info']['total_time'] = total_time
+        results['threading_info']['average_time_per_file'] = total_time / len(file_paths) if file_paths else 0
+        
+        logger.info(f"🎉 Multithreaded batch analysis completed!")
+        logger.info(f"   Total time: {total_time:.2f}s")
+        logger.info(f"   Average per file: {results['threading_info']['average_time_per_file']:.2f}s")
+        logger.info(f"   Successful: {results['successful']}, Failed: {results['failed']}")
+        
+        return results
+    
+    def _analyze_file_thread_safe(self, file_path: str, include_tensorflow: bool = True) -> Dict[str, Any]:
+        """
+        Thread-safe wrapper for analyze_file method.
+        
+        Args:
+            file_path: Path to audio file
+            include_tensorflow: Whether to include TensorFlow model analysis
+            
+        Returns:
+            Analysis results
+        """
+        try:
+            return self.analyze_file(file_path, include_tensorflow)
+        except Exception as e:
+            logger.error(f"Thread-safe analysis failed for {file_path}: {e}")
+            raise
     
     def get_analysis(self, file_path: str) -> Optional[Dict[str, Any]]:
         """
