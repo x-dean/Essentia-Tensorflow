@@ -128,26 +128,28 @@ class AudioAnalysis(Base):
     sample_rate = Column(Integer)
     duration = Column(Float)
     
-    # Basic features
+    # Basic features (essential for playlist apps)
     rms = Column(Float)
     energy = Column(Float)
     loudness = Column(Float)
-    duration = Column(Float)
+    dynamic_complexity = Column(Float)
+    zero_crossing_rate = Column(Float)
     
-    # Note: Advanced spectral features are stored in complete_analysis JSON
-    # spectral_centroid_mean, spectral_centroid_std
-    # spectral_rolloff_mean, spectral_rolloff_std
-    # spectral_contrast_mean, spectral_contrast_std
-    # spectral_complexity_mean, spectral_complexity_std
-    # mfcc_mean, mfcc_bands_mean
+    # Note: Advanced features are stored in complete_analysis JSON
+    # spectral_centroid, spectral_rolloff
+    # mfcc_features (40 coefficients)
+    # danceability_features
+    # rhythm_features (bpm, confidence)
+    # harmonic_features (key, scale, strength)
     
-    # Rhythm features
+    # Rhythm features (essential for playlist apps)
     tempo = Column(Float)
     tempo_confidence = Column(Float)
     tempo_methods_used = Column(Integer)  # Number of tempo estimation methods used
+    danceability = Column(Float)  # Essential for dance/party playlists
     
     # Note: Advanced rhythm features are stored in complete_analysis JSON
-    # beats, rhythm_ticks, rhythm_estimates, onset_detections
+    # bpm, rhythm_confidence, beat_confidence
     
     # Harmonic features
     key = Column(String)
@@ -157,11 +159,16 @@ class AudioAnalysis(Base):
     dominant_chroma_strength = Column(Float)  # Strength of dominant chroma
     
     # Note: Advanced harmonic features are stored in complete_analysis JSON
-    # chords, chord_strengths, pitch_yin, pitch_yin_confidence
-    # pitch_melodia, pitch_melodia_confidence, chromagram
+    # key, scale, key_strength (essential for harmonic mixing)
     
     # TensorFlow features (stored as JSON)
     tensorflow_features = Column(Text)  # JSON object with model outputs
+    tensorflow_summary = Column(Text)   # JSON summary of top predictions
+    
+    # Mood analysis features
+    mood_analysis = Column(Text)        # JSON object with mood analysis results
+    primary_mood = Column(String)       # Primary mood (energetic, calm, happy, etc.)
+    mood_confidence = Column(Float)     # Confidence score for primary mood
     
     # Complete analysis results (for detailed access)
     complete_analysis = Column(Text)  # JSON object with all analysis data

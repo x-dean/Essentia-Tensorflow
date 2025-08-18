@@ -305,7 +305,7 @@ class ModularAnalysisService:
             return {"error": f"Failed to load existing analysis: {str(e)}"}
     
     def _store_analysis_results(self, db: Session, file_record: File, results: Dict[str, Any]):
-        """Store analysis results in database"""
+        """Store analysis results in database with enhanced TensorFlow integration"""
         try:
             # Check if analysis record exists
             analysis_record = db.query(AudioAnalysis).filter(
@@ -324,23 +324,23 @@ class ModularAnalysisService:
                 if "basic_features" in essentia_data:
                     basic = essentia_data["basic_features"]
                     analysis_record.loudness = basic.get("loudness", -999.0)
+                    analysis_record.energy = basic.get("energy", -999.0)
                     analysis_record.dynamic_complexity = basic.get("dynamic_complexity", -999.0)
-                    analysis_record.spectral_complexity = basic.get("spectral_complexity", -999.0)
+                    analysis_record.zero_crossing_rate = basic.get("zero_crossing_rate", -999.0)
                 
-                # Spectral features
-                if "spectral_features" in essentia_data:
-                    spectral = essentia_data["spectral_features"]
-                    analysis_record.spectral_centroid = spectral.get("spectral_centroid", -999.0)
-                    analysis_record.spectral_rolloff = spectral.get("spectral_rolloff", -999.0)
-                    analysis_record.spectral_bandwidth = spectral.get("spectral_bandwidth", -999.0)
-                    analysis_record.spectral_flatness = spectral.get("spectral_flatness", -999.0)
+                # Spectral features (stored in complete_analysis JSON)
+                # spectral_centroid, spectral_rolloff
                 
                 # Rhythm features
                 if "rhythm_features" in essentia_data:
                     rhythm = essentia_data["rhythm_features"]
-                    analysis_record.estimated_bpm = rhythm.get("bpm", -999.0)
-                    analysis_record.rhythm_confidence = rhythm.get("rhythm_confidence", -999.0)
-                    analysis_record.beat_confidence = rhythm.get("beat_confidence", -999.0)
+                    analysis_record.tempo = rhythm.get("bpm", -999.0)
+                    analysis_record.tempo_confidence = rhythm.get("rhythm_confidence", -999.0)
+                
+                # Danceability features
+                if "danceability_features" in essentia_data:
+                    danceability = essentia_data["danceability_features"]
+                    analysis_record.danceability = danceability.get("danceability", -999.0)
                 
                 # Harmonic features
                 if "harmonic_features" in essentia_data:
@@ -348,18 +348,42 @@ class ModularAnalysisService:
                     analysis_record.key = harmonic.get("key", "unknown")
                     analysis_record.scale = harmonic.get("scale", "unknown")
                     analysis_record.key_strength = harmonic.get("key_strength", -999.0)
-                    analysis_record.chords = json.dumps(harmonic.get("chords", []))
-                    analysis_record.chord_strength = harmonic.get("chord_strength", -999.0)
                 
-                # MFCC features
-                if "mfcc_features" in essentia_data:
-                    mfcc = essentia_data["mfcc_features"]
-                    analysis_record.mfcc_mean = json.dumps(mfcc.get("mfcc_mean", []))
-                    analysis_record.mfcc_std = json.dumps(mfcc.get("mfcc_std", []))
+                # MFCC features (stored in complete_analysis JSON)
+                # mfcc_features (40 coefficients)
             
-            # Store TensorFlow results
+            # Store enhanced TensorFlow results
             if "tensorflow" in results and "error" not in results["tensorflow"]:
-                analysis_record.tensorflow_features = json.dumps(results["tensorflow"])
+                tensorflow_data = results["tensorflow"]
+                
+                # Store complete TensorFlow analysis
+                analysis_record.tensorflow_features = json.dumps(tensorflow_data)
+                
+                # Extract key TensorFlow features for database columns
+                if "tensorflow_analysis" in tensorflow_data and "musicnn" in tensorflow_data["tensorflow_analysis"]:
+                    musicnn_results = tensorflow_data["tensorflow_analysis"]["musicnn"]
+                    
+                    # Store top predictions as a summary
+                    if "top_predictions" in musicnn_results:
+                        top_predictions = musicnn_results["top_predictions"][:5]  # Top 5
+                        analysis_record.tensorflow_summary = json.dumps({
+                            "top_predictions": top_predictions,
+                            "statistics": musicnn_results.get("statistics", {})
+                        })
+            
+            # Store mood analysis results
+            if "mood_analysis" in results and "error" not in results["mood_analysis"]:
+                mood_data = results["mood_analysis"]
+                
+                # Store mood analysis in a dedicated field
+                analysis_record.mood_analysis = json.dumps(mood_data)
+                
+                # Extract primary mood for quick access
+                if "primary_mood" in mood_data:
+                    analysis_record.primary_mood = mood_data["primary_mood"]
+                
+                if "mood_confidence" in mood_data:
+                    analysis_record.mood_confidence = mood_data["mood_confidence"]
             
             # Store complete analysis as JSON
             analysis_record.complete_analysis = json.dumps(results)

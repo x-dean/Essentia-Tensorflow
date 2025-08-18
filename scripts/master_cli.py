@@ -330,6 +330,136 @@ class MasterCLI:
             logger.error(f"Error resetting database: {e}")
             return False
 
+    def analyze_tensorflow(self, args):
+        """Analyze audio files using TensorFlow/MusicNN with mood detection"""
+        if not args.files:
+            print("Error: No files specified. Use --files to specify audio files.")
+            return
+        
+        from src.playlist_app.services.modular_analysis_service import modular_analysis_service
+        
+        print(f"Starting TensorFlow analysis for {len(args.files)} files...")
+        
+        results = modular_analysis_service.analyze_files_batch(
+            file_paths=args.files,
+            enable_essentia=False,  # Only TensorFlow
+            enable_tensorflow=True,
+            enable_faiss=False,
+            force_reanalyze=args.force
+        )
+        
+        print(f"\nTensorFlow Analysis Results:")
+        print(f"Total files: {results['total_files']}")
+        print(f"Successful: {results['successful']}")
+        print(f"Failed: {results['failed']}")
+        
+        # Show detailed results for first few files
+        for i, result in enumerate(results['results'][:3]):
+            if result['status'] == 'success':
+                file_result = result['result']
+                print(f"\n--- File {i+1}: {result['file_path']} ---")
+                
+                if 'tensorflow' in file_result:
+                    tensorflow_data = file_result['tensorflow']
+                    
+                    # Show MusicNN predictions
+                    if 'tensorflow_analysis' in tensorflow_data and 'musicnn' in tensorflow_data['tensorflow_analysis']:
+                        musicnn = tensorflow_data['tensorflow_analysis']['musicnn']
+                        if 'top_predictions' in musicnn:
+                            print("Top MusicNN Predictions:")
+                            for pred in musicnn['top_predictions'][:5]:
+                                print(f"  {pred['tag']}: {pred['confidence']:.3f}")
+                    
+                    # Show mood analysis
+                    if 'mood_analysis' in file_result:
+                        mood_data = file_result['mood_analysis']
+                        if 'primary_mood' in mood_data:
+                            print(f"Primary Mood: {mood_data['primary_mood']} (confidence: {mood_data.get('mood_confidence', 0):.3f})")
+                        
+                        if 'dominant_moods' in mood_data:
+                            print("Dominant Moods:")
+                            for mood in mood_data['dominant_moods'][:3]:
+                                print(f"  {mood['mood']}: {mood['confidence']:.3f}")
+                        
+                        if 'emotions' in mood_data:
+                            emotions = mood_data['emotions']
+                            print(f"Emotions - Valence: {emotions.get('valence', 0):.3f}, Arousal: {emotions.get('arousal', 0):.3f}, Energy: {emotions.get('energy_level', 0):.3f}")
+            else:
+                print(f"\n--- File {i+1}: {result['file_path']} --- FAILED")
+                print(f"Error: {result.get('error', 'Unknown error')}")
+        
+        if len(results['results']) > 3:
+            print(f"\n... and {len(results['results']) - 3} more files")
+    
+    def analyze_audio_values(self, args):
+        """Analyze audio files using the complete audio values extraction pipeline"""
+        if not args.files:
+            print("Error: No files specified. Use --files to specify audio files.")
+            return
+        
+        from src.playlist_app.services.modular_analysis_service import modular_analysis_service
+        
+        print(f"Starting complete audio values extraction for {len(args.files)} files...")
+        print("This includes Essentia features, TensorFlow/MusicNN predictions, and mood analysis.")
+        
+        results = modular_analysis_service.analyze_files_batch(
+            file_paths=args.files,
+            enable_essentia=True,
+            enable_tensorflow=True,
+            enable_faiss=False,
+            force_reanalyze=args.force
+        )
+        
+        print(f"\nAudio Values Extraction Results:")
+        print(f"Total files: {results['total_files']}")
+        print(f"Successful: {results['successful']}")
+        print(f"Failed: {results['failed']}")
+        
+        # Show detailed results for first few files
+        for i, result in enumerate(results['results'][:3]):
+            if result['status'] == 'success':
+                file_result = result['result']
+                print(f"\n--- File {i+1}: {result['file_path']} ---")
+                
+                # Show Essentia features
+                if 'essentia' in file_result:
+                    essentia_data = file_result['essentia']
+                    
+                    if 'rhythm_features' in essentia_data:
+                        rhythm = essentia_data['rhythm_features']
+                        print(f"Tempo: {rhythm.get('bpm', 'N/A')} BPM")
+                    
+                    if 'harmonic_features' in essentia_data:
+                        harmonic = essentia_data['harmonic_features']
+                        print(f"Key: {harmonic.get('key', 'N/A')} {harmonic.get('scale', 'N/A')}")
+                    
+                    if 'danceability_features' in essentia_data:
+                        dance = essentia_data['danceability_features']
+                        print(f"Danceability: {dance.get('danceability', 'N/A'):.3f}")
+                
+                # Show TensorFlow predictions
+                if 'tensorflow' in file_result:
+                    tensorflow_data = file_result['tensorflow']
+                    
+                    if 'tensorflow_analysis' in tensorflow_data and 'musicnn' in tensorflow_data['tensorflow_analysis']:
+                        musicnn = tensorflow_data['tensorflow_analysis']['musicnn']
+                        if 'top_predictions' in musicnn:
+                            print("Top MusicNN Tags:")
+                            for pred in musicnn['top_predictions'][:3]:
+                                print(f"  {pred['tag']}: {pred['confidence']:.3f}")
+                
+                # Show mood analysis
+                if 'mood_analysis' in file_result:
+                    mood_data = file_result['mood_analysis']
+                    if 'primary_mood' in mood_data:
+                        print(f"Mood: {mood_data['primary_mood']} (confidence: {mood_data.get('mood_confidence', 0):.3f})")
+            else:
+                print(f"\n--- File {i+1}: {result['file_path']} --- FAILED")
+                print(f"Error: {result.get('error', 'Unknown error')}")
+        
+        if len(results['results']) > 3:
+            print(f"\n... and {len(results['results']) - 3} more files")
+
 def print_json(data: Dict[str, Any], indent: int = 2):
     """Pretty print JSON data"""
     print(json.dumps(data, indent=indent))
@@ -481,6 +611,22 @@ Examples:
     start_parser.add_argument('--include-tensorflow', action='store_true', help='Include TensorFlow analysis')
     start_parser.add_argument('--max-workers', type=int, help='Maximum number of workers')
     start_parser.add_argument('--max-files', type=int, help='Maximum number of files to process')
+    
+    # TensorFlow analysis subcommands
+    tensorflow_parser = subparsers.add_parser('tensorflow', help='TensorFlow/MusicNN analysis operations', parents=[parent_parser])
+    tensorflow_subparsers = tensorflow_parser.add_subparsers(dest='tensorflow_command')
+    
+    tensorflow_analyze_parser = tensorflow_subparsers.add_parser('analyze', help='Analyze files with TensorFlow/MusicNN', parents=[parent_parser])
+    tensorflow_analyze_parser.add_argument('--files', nargs='+', required=True, help='Audio files to analyze')
+    tensorflow_analyze_parser.add_argument('--force', action='store_true', help='Force re-analysis')
+    
+    # Audio values extraction subcommands
+    audio_values_parser = subparsers.add_parser('audio-values', help='Complete audio values extraction pipeline', parents=[parent_parser])
+    audio_values_subparsers = audio_values_parser.add_subparsers(dest='audio_values_command')
+    
+    audio_values_analyze_parser = audio_values_subparsers.add_parser('analyze', help='Extract complete audio values (Essentia + TensorFlow + Mood)', parents=[parent_parser])
+    audio_values_analyze_parser.add_argument('--files', nargs='+', required=True, help='Audio files to analyze')
+    audio_values_analyze_parser.add_argument('--force', action='store_true', help='Force re-analysis')
     
     # FAISS subcommands
     faiss_parser = subparsers.add_parser('faiss', help='FAISS operations', parents=[parent_parser])
@@ -670,6 +816,16 @@ Examples:
                     print(f" Message: {analysis_status.get('message', 'N/A')}")
                     print(f" Total Files: {analysis_status.get('total_files', 0)}")
                     print(f" Completed Files: {analysis_status.get('completed_files', 0)}")
+        
+        # TensorFlow analysis operations
+        elif args.command == 'tensorflow':
+            if args.tensorflow_command == 'analyze':
+                cli.analyze_tensorflow(args)
+        
+        # Audio values extraction operations
+        elif args.command == 'audio-values':
+            if args.audio_values_command == 'analyze':
+                cli.analyze_audio_values(args)
         
         # FAISS operations
         elif args.command == 'faiss':

@@ -520,41 +520,20 @@ class AudioAnalysisService:
                     'rms': analysis_record.rms,
                     'energy': analysis_record.energy,
                     'loudness': analysis_record.loudness,
-                    'spectral_centroid_mean': analysis_record.spectral_centroid_mean,
-                    'spectral_centroid_std': analysis_record.spectral_centroid_std,
-                    'spectral_rolloff_mean': analysis_record.spectral_rolloff_mean,
-                    'spectral_rolloff_std': analysis_record.spectral_rolloff_std,
-                    'spectral_contrast_mean': analysis_record.spectral_contrast_mean,
-                    'spectral_contrast_std': analysis_record.spectral_contrast_std,
-                    'spectral_complexity_mean': analysis_record.spectral_complexity_mean,
-                    'spectral_complexity_std': analysis_record.spectral_complexity_std,
-                    'mfcc_mean': json.loads(analysis_record.mfcc_mean) if analysis_record.mfcc_mean else [],
-                    'mfcc_bands_mean': json.loads(analysis_record.mfcc_bands_mean) if analysis_record.mfcc_bands_mean else []
+                    'dynamic_complexity': analysis_record.dynamic_complexity,
+                    'zero_crossing_rate': analysis_record.zero_crossing_rate
                 },
                 
                 'rhythm_features': {
                     'tempo': analysis_record.tempo,
                     'tempo_confidence': analysis_record.tempo_confidence,
-                    'rhythm_bpm': analysis_record.rhythm_bpm,
-                    'rhythm_confidence': analysis_record.rhythm_confidence,
-                    'beat_confidence': analysis_record.beat_confidence,
-                    'beats': json.loads(analysis_record.beats) if analysis_record.beats else [],
-                    'rhythm_ticks': json.loads(analysis_record.rhythm_ticks) if analysis_record.rhythm_ticks else [],
-                    'rhythm_estimates': json.loads(analysis_record.rhythm_estimates) if analysis_record.rhythm_estimates else [],
-                    'onset_detections': json.loads(analysis_record.onset_detections) if analysis_record.onset_detections else []
+                    'danceability': analysis_record.danceability
                 },
                 
                 'harmonic_features': {
                     'key': analysis_record.key,
                     'scale': analysis_record.scale,
-                    'key_strength': analysis_record.key_strength,
-                    'chords': json.loads(analysis_record.chords) if analysis_record.chords else [],
-                    'chord_strengths': json.loads(analysis_record.chord_strengths) if analysis_record.chord_strengths else [],
-                    'pitch_yin': json.loads(analysis_record.pitch_yin) if analysis_record.pitch_yin else [],
-                    'pitch_yin_confidence': json.loads(analysis_record.pitch_yin_confidence) if analysis_record.pitch_yin_confidence else [],
-                    'pitch_melodia': json.loads(analysis_record.pitch_melodia) if analysis_record.pitch_melodia else [],
-                    'pitch_melodia_confidence': json.loads(analysis_record.pitch_melodia_confidence) if analysis_record.pitch_melodia_confidence else [],
-                    'chromagram': json.loads(analysis_record.chromagram) if analysis_record.chromagram else []
+                    'key_strength': analysis_record.key_strength
                 },
                 
                 'tensorflow_features': json.loads(analysis_record.tensorflow_features) if analysis_record.tensorflow_features else {}

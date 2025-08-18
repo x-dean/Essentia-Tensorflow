@@ -54,6 +54,7 @@ RUN mkdir -p /workspace/models /workspace/data
 # Install Python dependencies
 RUN pip install --no-cache-dir \
     # Core Essentia and TensorFlow
+    tensorflow-cpu==2.12.0\
     essentia-tensorflow \
     # Web framework and API
     fastapi==0.104.1 \
@@ -69,6 +70,7 @@ RUN pip install --no-cache-dir \
     soundfile \
     pydub \
     mutagen \
+    ffmpeg-python \
     # Data processing and visualization
     pandas \
     matplotlib \

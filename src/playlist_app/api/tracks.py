@@ -42,16 +42,10 @@ def extract_spectral_features(analysis):
     try:
         complete_data = json.loads(analysis.complete_analysis)
         if "spectral" in complete_data:
-            spectral = complete_data["spectral"]
+            spectral = complete_data["spectral_features"]
             return {
-                "spectral_centroid_mean": spectral.get("centroid", {}).get("mean"),
-                "spectral_centroid_std": spectral.get("centroid", {}).get("std"),
-                "spectral_rolloff_mean": spectral.get("rolloff", {}).get("mean"),
-                "spectral_rolloff_std": spectral.get("rolloff", {}).get("std"),
-                "spectral_contrast_mean": spectral.get("contrast", {}).get("mean"),
-                "spectral_contrast_std": spectral.get("contrast", {}).get("std"),
-                "spectral_complexity_mean": spectral.get("complexity", {}).get("mean"),
-                "spectral_complexity_std": spectral.get("complexity", {}).get("std")
+                "spectral_centroid": spectral.get("spectral_centroid"),
+                "spectral_rolloff": spectral.get("spectral_rolloff")
             }
     except (json.JSONDecodeError, KeyError, TypeError):
         pass
@@ -141,6 +135,9 @@ async def get_all_tracks(
                         "key_strength": analysis.key_strength,
                         "energy": analysis.energy,
                         "loudness": analysis.loudness,
+                        "dynamic_complexity": analysis.dynamic_complexity,
+                        "zero_crossing_rate": analysis.zero_crossing_rate,
+                        "danceability": analysis.danceability,
                         "analysis_timestamp": analysis.analysis_timestamp.isoformat() if analysis.analysis_timestamp else None
                     })
                     
