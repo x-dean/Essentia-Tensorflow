@@ -94,7 +94,7 @@ Returns list of discovered files with pagination.
       "file_size": 5242880,
       "file_extension": ".mp3",
       "discovered_at": "2024-01-01T12:00:00",
-      "is_analyzed": false
+              "analysis_status": "pending"
     }
   ],
   "count": 1
@@ -149,7 +149,7 @@ CREATE TABLE files (
     file_extension VARCHAR NOT NULL,
     discovered_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     last_modified DATETIME DEFAULT CURRENT_TIMESTAMP,
-    is_analyzed BOOLEAN DEFAULT FALSE,
+    analysis_status VARCHAR DEFAULT 'pending',
     is_active BOOLEAN DEFAULT TRUE
 );
 ```
@@ -222,7 +222,7 @@ This approach:
 ## Integration with Playlist System
 
 The discovery system is designed to integrate with the playlist system:
-- Files marked as `is_analyzed=False` are candidates for audio analysis
+- Files marked as `analysis_status='pending'` are candidates for audio analysis
 - When files are removed, playlist cleanup is triggered
 - File hashes are used to link files with audio analysis results
 

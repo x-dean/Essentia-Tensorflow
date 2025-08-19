@@ -7,7 +7,7 @@ from datetime import datetime
 from ..models.database import File, AudioMetadata
 from ..core.config_loader import config_loader
 from .metadata import AudioMetadataAnalyzer
-from .audio_analysis_service import audio_analysis_service
+# Removed old audio_analysis_service import - using new independent analyzers
 from .essentia_analyzer import safe_json_serialize
 
 logger = logging.getLogger(__name__)
@@ -74,7 +74,7 @@ class AnalyzerManager:
                 files_to_process = [file.file_path for file in all_files]
             else:
                 # Get all unanalyzed files from database
-                unanalyzed_files = db.query(File).filter(File.has_audio_analysis == False).all()
+                unanalyzed_files = db.query(File).filter(File.analysis_status != "complete").all()
                 files_to_process = [file.file_path for file in unanalyzed_files]
         
         logger.info(f"Categorizing {len(files_to_process)} files by length")

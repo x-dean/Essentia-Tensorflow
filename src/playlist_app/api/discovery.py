@@ -85,7 +85,7 @@ async def get_discovery_status(discovery_service: DiscoveryService = Depends(get
         
         # Get basic stats
         total_files = db.query(File).filter(File.is_active == True).count()
-        analyzed_files = db.query(File).filter(File.is_active == True, File.has_audio_analysis == True).count()
+        analyzed_files = db.query(File).filter(File.is_active == True, File.analysis_status == "complete").count()
         
         # Check if discovery directories exist
         from ..core.config import DiscoveryConfig
@@ -120,7 +120,7 @@ async def get_discovery_stats(discovery_service: DiscoveryService = Depends(get_
         total_files = db.query(File).filter(File.is_active == True).count()
         
         # Get analyzed files
-        analyzed_files = db.query(File).filter(File.is_active == True, File.has_audio_analysis == True).count()
+        analyzed_files = db.query(File).filter(File.is_active == True, File.analysis_status == "complete").count()
         
         # Get status distribution
         status_counts = db.query(File.status, func.count(File.id)).group_by(File.status).all()

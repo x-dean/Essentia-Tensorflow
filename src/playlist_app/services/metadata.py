@@ -14,7 +14,7 @@ from mutagen.wave import WAVE
 from sqlalchemy.orm import Session
 from datetime import datetime
 
-from ..models.database import File, AudioMetadata, get_db, FileStatus
+from ..models.database_v2 import File, AudioMetadata, get_db, FileStatus
 from ..core.config_loader import config_loader
 from .genre_enrichment import genre_enrichment_manager
 from ..core.logging import get_logger
@@ -602,15 +602,11 @@ class AudioMetadataAnalyzer:
                 logger.warning(f"File record not found for: {file_path}")
                 return
             
-            # Filter metadata to only include valid AudioMetadata fields
+            # Filter metadata to only include essential fields for playlist generation
             valid_fields = {
-                'title', 'artist', 'album', 'track_number', 'year', 'genre',
-                'album_artist', 'disc_number', 'composer', 'duration', 'bpm', 'key',
-                'comment', 'mood', 'rating', 'isrc', 'encoder', 'bitrate', 'sample_rate',
-                'channels', 'format', 'file_size', 'file_format', 'replaygain_track_gain',
-                'replaygain_album_gain', 'replaygain_track_peak', 'replaygain_album_peak',
-                'musicbrainz_track_id', 'musicbrainz_artist_id', 'musicbrainz_album_id',
-                'musicbrainz_album_artist_id'
+                'title', 'artist', 'album', 'album_artist', 'year', 'genre',
+                'duration', 'bpm', 'key', 'bitrate', 'sample_rate', 'channels',
+                'file_format', 'mood', 'energy', 'danceability', 'valence'
             }
             
             filtered_metadata = {k: v for k, v in metadata.items() if k in valid_fields}

@@ -7,7 +7,7 @@ import json
 import math
 from datetime import datetime
 
-from src.playlist_app.models.database import get_db, File, AudioMetadata, AudioAnalysis, FileStatus
+from src.playlist_app.models.database import get_db, File, AudioMetadata, FileStatus, TrackAnalysisSummary
 from src.playlist_app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -72,7 +72,7 @@ async def get_all_tracks(
         query = db.query(File)
         
         if analyzed_only:
-            query = query.filter(File.has_audio_analysis == True)
+            query = query.join(TrackAnalysisSummary).filter(TrackAnalysisSummary.overall_status == "complete")
         
         if has_metadata:
             query = query.join(AudioMetadata)
@@ -81,16 +81,22 @@ async def get_all_tracks(
         tracks = query.order_by(File.discovered_at.desc()).offset(offset).limit(limit).all()
         
         if format == "minimal":
-            result = [
-                {
+            result = []
+            for track in tracks:
+                track_data = {
                     "id": track.id,
                     "file_path": track.file_path,
                     "file_name": track.file_name,
                     "status": track.status.value if track.status else None,
-                    "is_analyzed": track.is_analyzed
                 }
-                for track in tracks
-            ]
+                
+                # Add analysis status from track summary if available
+                if track.track_summary:
+                    track_data["analysis_status"] = track.track_summary.overall_status
+                else:
+                    track_data["analysis_status"] = None
+                
+                result.append(track_data)
         elif format == "summary":
             result = []
             for track in tracks:
@@ -102,11 +108,33 @@ async def get_all_tracks(
                     "file_extension": track.file_extension,
                     "discovered_at": track.discovered_at.isoformat() if track.discovered_at else None,
                     "status": track.status.value if track.status else None,
-                    "is_analyzed": track.is_analyzed,
                     "has_metadata": track.has_metadata,
-                    "has_audio_analysis": track.has_audio_analysis,
                     "is_active": track.is_active
                 }
+                
+                # Add analysis status from track summary if available
+                if track.track_summary:
+                    track_data.update({
+                        "analysis_status": track.track_summary.overall_status,
+                        "essentia_status": track.track_summary.essentia_status.value if track.track_summary.essentia_status else None,
+                        "tensorflow_status": track.track_summary.tensorflow_status.value if track.track_summary.tensorflow_status else None,
+                        "faiss_status": track.track_summary.faiss_status.value if track.track_summary.faiss_status else None,
+                        "essentia_completed_at": track.track_summary.essentia_completed_at.isoformat() if track.track_summary.essentia_completed_at else None,
+                        "tensorflow_completed_at": track.track_summary.tensorflow_completed_at.isoformat() if track.track_summary.tensorflow_completed_at else None,
+                        "faiss_completed_at": track.track_summary.faiss_completed_at.isoformat() if track.track_summary.faiss_completed_at else None,
+                        "last_updated": track.track_summary.last_updated.isoformat() if track.track_summary.last_updated else None
+                    })
+                else:
+                    track_data.update({
+                        "analysis_status": None,
+                        "essentia_status": None,
+                        "tensorflow_status": None,
+                        "faiss_status": None,
+                        "essentia_completed_at": None,
+                        "tensorflow_completed_at": None,
+                        "faiss_completed_at": None,
+                        "last_updated": None
+                    })
                 
                 # Add metadata if available
                 if track.audio_metadata:
@@ -125,25 +153,8 @@ async def get_all_tracks(
                         "sample_rate": metadata.sample_rate
                     })
                 
-                # Add analysis summary if available
-                if track.audio_analysis:
-                    analysis = track.audio_analysis
-                    track_data.update({
-                        "tempo": analysis.tempo,
-                        "key_analysis": analysis.key,
-                        "scale": analysis.scale,
-                        "key_strength": analysis.key_strength,
-                        "energy": analysis.energy,
-                        "loudness": analysis.loudness,
-                        "dynamic_complexity": analysis.dynamic_complexity,
-                        "zero_crossing_rate": analysis.zero_crossing_rate,
-                        "danceability": analysis.danceability,
-                        "analysis_timestamp": analysis.analysis_timestamp.isoformat() if analysis.analysis_timestamp else None
-                    })
-                    
-                    # Add spectral features from complete_analysis
-                    spectral_features = extract_spectral_features(analysis)
-                    track_data.update(spectral_features)
+                # Analysis data is available through the individual analyzer status tables
+                # and results tables, which can be accessed via separate endpoints
                 
                 result.append(clean_float_values(track_data))
         else:  # detailed
@@ -158,7 +169,7 @@ async def get_all_tracks(
                     "file_extension": track.file_extension,
                     "discovered_at": track.discovered_at.isoformat() if track.discovered_at else None,
                     "last_modified": track.last_modified.isoformat() if track.last_modified else None,
-                    "is_analyzed": track.is_analyzed,
+                    "analysis_status": track.track_summary.overall_status if track.track_summary else None,
                     "is_active": track.is_active
                 }
                 
@@ -201,42 +212,8 @@ async def get_all_tracks(
                         "updated_at": metadata.updated_at.isoformat() if metadata.updated_at else None
                     }
                 
-                # Add full analysis if available
-                if track.audio_analysis:
-                    analysis = track.audio_analysis
-                    track_data["analysis"] = {
-                        "analysis_timestamp": analysis.analysis_timestamp.isoformat() if analysis.analysis_timestamp else None,
-                        "analysis_duration": analysis.analysis_duration,
-                        "sample_rate": analysis.sample_rate,
-                        "duration": analysis.duration,
-                        "basic_features": {
-                            "rms": analysis.rms,
-                            "energy": analysis.energy,
-                            "loudness": analysis.loudness
-                        },
-                        "mfcc_features": {
-                            # MFCC features are stored in complete_analysis JSON
-                        },
-                        "rhythm_features": {
-                            "tempo": analysis.tempo,
-                            "tempo_confidence": analysis.tempo_confidence,
-                            "tempo_methods_used": analysis.tempo_methods_used
-                        },
-                        "harmonic_features": {
-                            "key": analysis.key,
-                            "scale": analysis.scale,
-                            "key_strength": analysis.key_strength,
-                            "dominant_chroma": analysis.dominant_chroma,
-                            "dominant_chroma_strength": analysis.dominant_chroma_strength
-                        },
-                        "tensorflow_features": json.loads(analysis.tensorflow_features) if analysis.tensorflow_features else None,
-                        "complete_analysis": json.loads(analysis.complete_analysis) if analysis.complete_analysis else None
-                    }
-                    
-                    # Add spectral features from complete_analysis
-                    spectral_features = extract_spectral_features(analysis)
-                    if spectral_features:
-                        track_data["analysis"]["spectral_features"] = spectral_features
+                # Analysis data is available through the individual analyzer status tables
+                # and results tables, which can be accessed via separate endpoints
                 
                 result.append(clean_float_values(track_data))
         

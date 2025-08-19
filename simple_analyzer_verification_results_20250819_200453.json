@@ -1,0 +1,59 @@
+{
+  "cli_availability": {
+    "success": true,
+    "cli_exists": true,
+    "cli_executable": true,
+    "help_works": true,
+    "errors": []
+  },
+  "analyzer_status": {
+    "success": true,
+    "status_response": {
+      "operational": true
+    },
+    "services_available": {},
+    "errors": []
+  },
+  "essentia_test": {
+    "success": true,
+    "pending_files": {},
+    "analysis_result": {
+      "success": true
+    },
+    "errors": []
+  },
+  "tensorflow_test": {
+    "success": true,
+    "pending_files": {},
+    "analysis_result": {
+      "success": true
+    },
+    "errors": []
+  },
+  "faiss_test": {
+    "success": true,
+    "pending_files": {},
+    "analysis_result": {
+      "success": true
+    },
+    "errors": []
+  },
+  "integration_test": {
+    "success": true,
+    "all_analyzers": {
+      "success": true
+    },
+    "statistics": {},
+    "errors": []
+  },
+  "database_info": {
+    "success": true,
+    "file_count": {
+      "response": "No files or error"
+    },
+    "analyzer_stats": {
+      "response": "Statistics available"
+    },
+    "errors": []
+  }
+}

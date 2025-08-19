@@ -293,7 +293,7 @@ CREATE TABLE files (
     file_hash VARCHAR(64) UNIQUE,
     file_size BIGINT,
     file_format VARCHAR(10),
-    is_analyzed BOOLEAN DEFAULT FALSE,
+    analysis_status VARCHAR DEFAULT 'pending',
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()

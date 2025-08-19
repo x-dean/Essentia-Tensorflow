@@ -1,0 +1,58 @@
+{
+  "cli_availability": {
+    "success": true,
+    "cli_exists": true,
+    "cli_executable": true,
+    "help_works": true,
+    "errors": []
+  },
+  "analyzer_status": {
+    "success": false,
+    "status_response": {},
+    "services_available": {},
+    "errors": [
+      "Analyzer status not operational"
+    ]
+  },
+  "essentia_test": {
+    "success": false,
+    "pending_files": {},
+    "analysis_result": {},
+    "errors": [
+      "Essentia analysis failed"
+    ]
+  },
+  "tensorflow_test": {
+    "success": false,
+    "pending_files": {},
+    "analysis_result": {},
+    "errors": [
+      "TensorFlow analysis failed"
+    ]
+  },
+  "faiss_test": {
+    "success": false,
+    "pending_files": {},
+    "analysis_result": {},
+    "errors": [
+      "FAISS analysis failed"
+    ]
+  },
+  "integration_test": {
+    "success": false,
+    "all_analyzers": {},
+    "statistics": {},
+    "errors": [
+      "Integration test failed: Command '['C:\\\\Users\\\\Dean\\\\AppData\\\\Local\\\\Microsoft\\\\WindowsApps\\\\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\\\\python.exe', 'scripts/master_cli.py', 'analyzer', 'all', '--max-files', '3']' returned non-zero exit status 2.",
+      "Stderr: usage: master_cli.py analyzer [-h] [--json]\n                              {status,statistics,essentia,tensorflow,faiss,complete}\n                              ...\nmaster_cli.py analyzer: error: argument analyzer_command: invalid choice: 'all' (choose from 'status', 'statistics', 'essentia', 'tensorflow', 'faiss', 'complete')\n"
+    ]
+  },
+  "database_info": {
+    "success": false,
+    "file_count": {},
+    "analyzer_stats": {},
+    "errors": [
+      "Database info failed: Command '['C:\\\\Users\\\\Dean\\\\AppData\\\\Local\\\\Microsoft\\\\WindowsApps\\\\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\\\\python.exe', 'scripts/master_cli.py', 'tracks', 'list', '--limit', '1']' returned non-zero exit status 1."
+    ]
+  }
+}

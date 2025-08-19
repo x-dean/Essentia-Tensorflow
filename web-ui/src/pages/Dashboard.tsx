@@ -89,8 +89,8 @@ const Dashboard: React.FC = () => {
   // Calculate stats from tracks data
   const basicStats = tracksData && tracksData.tracks ? {
     total_files: tracksData.total_count,
-    analyzed_files: tracksData.tracks.filter((t: any) => t && t.is_analyzed).length,
-    unanalyzed_files: tracksData.tracks.filter((t: any) => t && !t.is_analyzed).length,
+            analyzed_files: tracksData.tracks.filter((t: any) => t && t.analysis_status === "complete").length,
+        unanalyzed_files: tracksData.tracks.filter((t: any) => t && t.analysis_status !== "complete").length,
     files_with_metadata: tracksData.tracks.filter((t: any) => t && (t.title || t.artist)).length
   } : null;
 

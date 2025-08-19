@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import List, Dict, Set, Tuple
 from datetime import datetime
 from sqlalchemy.orm import Session
-from ..models.database import File, DiscoveryCache, get_db, FileStatus
+from ..models.database_v2 import File, DiscoveryCache, get_db, FileStatus, EssentiaAnalysisStatus, TensorFlowAnalysisStatus, FAISSAnalysisStatus, AnalyzerStatus
 from ..core.config import DiscoveryConfig
 from ..core.logging import get_logger
 from .metadata import audio_metadata_analyzer
@@ -186,13 +186,13 @@ class DiscoveryService:
     def add_file_to_db(self, file_info: Dict):
         """Add new file to database and extract metadata"""
         try:
-            # Check if file with same hash already exists
+            # Check if file already exists
             existing_file = self.db.query(File).filter(
-                File.file_hash == file_info["file_hash"]
+                File.file_path == file_info["file_path"]
             ).first()
             
             if existing_file:
-                logger.info(f"File with same hash already exists: {file_info['file_name']}")
+                logger.info(f"File already exists: {file_info['file_name']}")
                 return
             
             # Create new file record
@@ -200,12 +200,8 @@ class DiscoveryService:
                 file_path=file_info["file_path"],
                 file_name=file_info["file_name"],
                 file_size=file_info["file_size"],
-                file_hash=file_info["file_hash"],
                 file_extension=file_info["file_extension"],
-                last_modified=file_info["last_modified"],
-                is_analyzed=False,
-                is_active=True,
-                status=FileStatus.DISCOVERED
+                is_active=True
             )
             
             self.db.add(new_file)
@@ -261,7 +257,7 @@ class DiscoveryService:
                 "file_size": file.file_size,
                 "file_extension": file.file_extension,
                 "discovered_at": file.discovered_at.isoformat(),
-                "is_analyzed": file.is_analyzed
+                "status": file.status.value if file.status else "unknown"
             }
             for file in files
         ]
@@ -281,10 +277,91 @@ class DiscoveryService:
                 "file_size": file.file_size,
                 "file_extension": file.file_extension,
                 "discovered_at": file.discovered_at.isoformat(),
-                "is_analyzed": file.is_analyzed
+                "status": file.status.value if file.status else "unknown"
             }
         return None
     
+    def ensure_status_records_exist(self) -> Dict[str, int]:
+        """Ensure all active files have analyzer status records"""
+        try:
+            logger.info("Checking for files without analyzer status records...")
+            
+            # Get all active files
+            active_files = self.db.query(File).filter(File.is_active == True).all()
+            
+            # Check which files don't have status records
+            files_without_essentia = []
+            files_without_tensorflow = []
+            files_without_faiss = []
+            
+            for file in active_files:
+                # Check Essentia status
+                essentia_status = self.db.query(EssentiaAnalysisStatus).filter(
+                    EssentiaAnalysisStatus.file_id == file.id
+                ).first()
+                if not essentia_status:
+                    files_without_essentia.append(file.id)
+                
+                # Check TensorFlow status
+                tensorflow_status = self.db.query(TensorFlowAnalysisStatus).filter(
+                    TensorFlowAnalysisStatus.file_id == file.id
+                ).first()
+                if not tensorflow_status:
+                    files_without_tensorflow.append(file.id)
+                
+                # Check FAISS status
+                faiss_status = self.db.query(FAISSAnalysisStatus).filter(
+                    FAISSAnalysisStatus.file_id == file.id
+                ).first()
+                if not faiss_status:
+                    files_without_faiss.append(file.id)
+            
+            # Create missing status records
+            created_count = 0
+            
+            for file_id in files_without_essentia:
+                essentia_status = EssentiaAnalysisStatus(
+                    file_id=file_id,
+                    status=AnalyzerStatus.PENDING
+                )
+                self.db.add(essentia_status)
+                created_count += 1
+            
+            for file_id in files_without_tensorflow:
+                tensorflow_status = TensorFlowAnalysisStatus(
+                    file_id=file_id,
+                    status=AnalyzerStatus.PENDING
+                )
+                self.db.add(tensorflow_status)
+                created_count += 1
+            
+            for file_id in files_without_faiss:
+                faiss_status = FAISSAnalysisStatus(
+                    file_id=file_id,
+                    status=AnalyzerStatus.PENDING
+                )
+                self.db.add(faiss_status)
+                created_count += 1
+            
+            if created_count > 0:
+                self.db.commit()
+                logger.info(f"Created {created_count} missing analyzer status records")
+            else:
+                logger.info("All files already have analyzer status records")
+            
+            return {
+                "total_files": len(active_files),
+                "files_without_essentia": len(files_without_essentia),
+                "files_without_tensorflow": len(files_without_tensorflow),
+                "files_without_faiss": len(files_without_faiss),
+                "created_records": created_count
+            }
+            
+        except Exception as e:
+            logger.error(f"Error ensuring status records exist: {e}")
+            self.db.rollback()
+            return {"error": str(e)}
+
     def re_discover_files(self) -> Dict[str, List[str]]:
         """Re-discover all files (useful for initial setup or after file changes)"""
         try:

@@ -1,0 +1,59 @@
+{
+  "cli_availability": {
+    "success": true,
+    "cli_exists": true,
+    "cli_executable": true,
+    "help_works": true,
+    "errors": []
+  },
+  "analyzer_status": {
+    "success": false,
+    "status_response": {},
+    "services_available": {},
+    "errors": [
+      "Analyzer status not operational"
+    ]
+  },
+  "essentia_test": {
+    "success": false,
+    "pending_files": {},
+    "analysis_result": {},
+    "errors": [
+      "Essentia analysis failed"
+    ]
+  },
+  "tensorflow_test": {
+    "success": false,
+    "pending_files": {},
+    "analysis_result": {},
+    "errors": [
+      "TensorFlow analysis failed"
+    ]
+  },
+  "faiss_test": {
+    "success": false,
+    "pending_files": {},
+    "analysis_result": {},
+    "errors": [
+      "FAISS analysis failed"
+    ]
+  },
+  "integration_test": {
+    "success": true,
+    "all_analyzers": {
+      "success": true
+    },
+    "statistics": {},
+    "errors": []
+  },
+  "database_info": {
+    "success": true,
+    "file_count": {
+      "response": "No files or error"
+    },
+    "analyzer_stats": {
+      "response": "Statistics available"
+    },
+    "errors": []
+  }
+}

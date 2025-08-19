@@ -161,18 +161,33 @@ class TensorFlowAnalyzer:
             if self.musicnn_predictor is not None:
                 del self.musicnn_predictor
                 self.musicnn_predictor = None
-                logger.info("MusicNN model unloaded from memory")
+                # Don't log during shutdown
+                try:
+                    logger.info("MusicNN model unloaded from memory")
+                except:
+                    pass
                 
             # Force garbage collection
-            import gc
-            gc.collect()
+            try:
+                import gc
+                gc.collect()
+            except:
+                pass
             
         except Exception as e:
-            logger.error(f"Failed to unload TensorFlow models: {e}")
+            # Don't log during shutdown
+            try:
+                logger.error(f"Failed to unload TensorFlow models: {e}")
+            except:
+                pass
     
     def __del__(self):
         """Cleanup when analyzer is destroyed"""
-        self._unload_models()
+        try:
+            self._unload_models()
+        except:
+            # Ignore errors during shutdown
+            pass
     
     def _load_musicnn_tags(self):
         """Load MusicNN tag names from model configuration"""
@@ -335,18 +350,16 @@ class TensorFlowAnalyzer:
             
             logger.info(f"Audio duration: {duration:.2f} seconds")
             
-            # Determine analysis strategy with aggressive memory optimization
+            # Determine analysis strategy - simplified for testing
             if duration < 30:
                 logger.info(f"Short track ({duration:.1f}s), analyzing full track")
                 results = self._analyze_full_track(file_path)
                 strategy = "full_track"
-            elif duration > 120:  # > 2 minutes - use aggressive streaming
-                logger.info(f"Long track ({duration:.1f}s), using aggressive streaming (first 60s only)")
-                results = self._analyze_aggressive_streaming(file_path, duration)
-                strategy = "aggressive_streaming"
             else:
-                logger.info(f"Medium track ({duration:.1f}s), analyzing 60s segment")
-                results = self._analyze_segment(file_path, 30, 60)
+                logger.info(f"Track ({duration:.1f}s), analyzing 30s segment from middle")
+                # Analyze a 30-second segment from the middle of the track
+                start_time = max(0, (duration - 30) / 2)
+                results = self._analyze_segment(file_path, start_time, 30)
                 strategy = "segment"
             
             # Add metadata
@@ -377,36 +390,23 @@ class TensorFlowAnalyzer:
             }
     
     def _get_audio_duration(self, file_path: str) -> Optional[float]:
-        """Get audio duration efficiently using FFmpeg"""
+        """Get audio duration using Essentia (FFmpeg disabled due to hanging issues)"""
         try:
-            # Try FFmpeg first (most efficient)
-            try:
-                import ffmpeg
-                
-                # Use FFmpeg to get duration without loading audio
-                probe = ffmpeg.probe(file_path)
-                duration = float(probe['format']['duration'])
-                logger.debug(f"FFmpeg duration: {duration:.2f}s")
-                return duration
-                
-            except ImportError:
-                logger.warning("ffmpeg-python not available, falling back to Essentia")
-                pass
-            except Exception as e:
-                logger.warning(f"FFmpeg duration extraction failed: {e}, falling back to Essentia")
-                pass
-            
-            # Fallback to Essentia
+            # Use Essentia for duration extraction (more reliable than FFmpeg)
             if ESSENTIA_AVAILABLE:
                 # Use Essentia's MonoLoader just for duration
                 loader = es.MonoLoader(filename=file_path, sampleRate=self.config.sample_rate)
                 audio = loader()
-                return len(audio) / self.config.sample_rate
+                duration = len(audio) / self.config.sample_rate
+                logger.debug(f"Essentia duration: {duration:.2f}s")
+                return duration
             else:
                 # Fallback using soundfile
                 import soundfile as sf
                 info = sf.info(file_path)
-                return info.duration
+                duration = info.duration
+                logger.debug(f"Soundfile duration: {duration:.2f}s")
+                return duration
         except Exception as e:
             logger.error(f"Failed to get audio duration: {e}")
             return None
@@ -565,34 +565,9 @@ class TensorFlowAnalyzer:
              return {"error": str(e)}
     
     def _extract_audio_segment(self, file_path: str, start_time: float, duration: float) -> Optional[np.ndarray]:
-        """Extract a specific audio segment from file using FFmpeg"""
+        """Extract a specific audio segment from file using Essentia (FFmpeg disabled due to hanging issues)"""
         try:
-            # Try FFmpeg first (most efficient)
-            try:
-                import ffmpeg
-                
-                # Use FFmpeg to extract segment directly
-                stream = ffmpeg.input(file_path, ss=start_time, t=duration)
-                stream = ffmpeg.output(stream, 'pipe:', format='f32le', acodec='pcm_f32le', 
-                                     ac=1, ar=self.config.sample_rate, loglevel='error')
-                
-                # Run FFmpeg and get audio data
-                out, _ = ffmpeg.run(stream, capture_stdout=True, capture_stderr=True, quiet=True)
-                
-                # Convert bytes to numpy array
-                audio = np.frombuffer(out, dtype=np.float32)
-                
-                logger.debug(f"FFmpeg extracted segment: {len(audio)} samples, {len(audio)/self.config.sample_rate:.2f}s")
-                return audio
-                
-            except ImportError:
-                logger.warning("ffmpeg-python not available, falling back to Essentia")
-                pass
-            except Exception as e:
-                logger.warning(f"FFmpeg extraction failed: {e}, falling back to Essentia")
-                pass
-            
-            # Fallback to Essentia
+            # Use Essentia for segment extraction (more reliable than FFmpeg)
             if ESSENTIA_AVAILABLE:
                 # Load full audio and extract segment (Essentia MonoLoader doesn't support start/end time)
                 loader = es.MonoLoader(filename=file_path, sampleRate=self.config.sample_rate)
@@ -602,6 +577,7 @@ class TensorFlowAnalyzer:
                 end_sample = min(start_sample + int(duration * self.config.sample_rate), len(audio))
                 segment = audio[start_sample:end_sample]
                 
+                logger.debug(f"Essentia extracted segment: {len(segment)} samples, {len(segment)/self.config.sample_rate:.2f}s")
                 return segment.astype(np.float32)
             else:
                 # Fallback: load full audio and extract segment
@@ -618,6 +594,7 @@ class TensorFlowAnalyzer:
                     from scipy import signal
                     segment = signal.resample(segment, int(len(segment) * self.config.sample_rate / sr))
                 
+                logger.debug(f"Soundfile extracted segment: {len(segment)} samples, {len(segment)/self.config.sample_rate:.2f}s")
                 return segment.astype(np.float32)
                 
         except Exception as e:
@@ -894,13 +871,47 @@ class TensorFlowAnalyzer:
     def _analyze_with_musicnn(self, audio: np.ndarray) -> Dict[str, Any]:
         """Analyze audio with MusicNN model using pre-loaded predictor"""
         try:
+            logger.debug(f"Starting MusicNN analysis with {len(audio)} samples")
+            
             if self.musicnn_predictor is not None:
                 # Use pre-loaded predictor (much faster)
-                predictions = self.musicnn_predictor(audio)
+                logger.debug("Using pre-loaded MusicNN predictor")
+                
+                # Add timeout to prevent hanging
+                import signal
+                import threading
+                import time
+                
+                result = [None]
+                exception = [None]
+                
+                def run_prediction():
+                    try:
+                        result[0] = self.musicnn_predictor(audio)
+                    except Exception as e:
+                        exception[0] = e
+                
+                # Run prediction in a thread with timeout
+                thread = threading.Thread(target=run_prediction)
+                thread.daemon = True
+                thread.start()
+                thread.join(timeout=60)  # 60 second timeout
+                
+                if thread.is_alive():
+                    logger.error("MusicNN prediction timed out after 60 seconds")
+                    return {"error": "MusicNN prediction timed out"}
+                
+                if exception[0] is not None:
+                    raise exception[0]
+                
+                predictions = result[0]
+                logger.debug(f"MusicNN predictions completed, shape: {predictions.shape if hasattr(predictions, 'shape') else 'unknown'}")
                 results = self._process_musicnn_predictions(predictions)
+                logger.debug("MusicNN results processed successfully")
                 return results
             else:
                 # Fallback to loading predictor on demand
+                logger.debug("Loading MusicNN predictor on demand")
                 if ESSENTIA_AVAILABLE:
                     from essentia.standard import TensorflowPredictMusiCNN
                     

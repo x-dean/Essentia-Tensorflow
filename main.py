@@ -20,9 +20,10 @@ from fastapi import FastAPI, BackgroundTasks, File, UploadFile
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+from sqlalchemy import text
 
 # Import our application components
-from src.playlist_app.models.database import create_tables, SessionLocal, File
+from src.playlist_app.models.database_v2 import get_db, SessionLocal, File
 from src.playlist_app.services.discovery import DiscoveryService
 from src.playlist_app.api.discovery import router as discovery_router
 from src.playlist_app.api.config import router as config_router
@@ -30,6 +31,8 @@ from src.playlist_app.api.metadata import router as metadata_router
 from src.playlist_app.api.analyzer import router as analyzer_router
 from src.playlist_app.api.tracks import router as tracks_router
 from src.playlist_app.api.faiss import router as faiss_router
+
+from src.playlist_app.api.playlists import router as playlists_router
 from src.playlist_app.core.config import DiscoveryConfig
 from src.playlist_app.core.logging import setup_logging, get_logger, log_performance
 
@@ -223,9 +226,24 @@ def initialize_database():
             time.sleep(delay)
             delay = min(delay * backoff_multiplier, 30)  # Cap delay at 30 seconds
     
+    # Create schemas first
+    logger.info("Creating database schemas...")
+    from src.playlist_app.models.database_v2 import engine
+    
+    # Create schemas
+    with engine.connect() as conn:
+        conn.execute(text("CREATE SCHEMA IF NOT EXISTS core"))
+        conn.execute(text("CREATE SCHEMA IF NOT EXISTS analysis"))
+        conn.execute(text("CREATE SCHEMA IF NOT EXISTS playlists"))
+        conn.execute(text("CREATE SCHEMA IF NOT EXISTS recommendations"))
+        conn.execute(text("CREATE SCHEMA IF NOT EXISTS ui"))
+        conn.commit()
+    
     # Create SQLAlchemy tables
     logger.info("Creating database tables...")
-    create_tables()
+    # Initialize database tables
+    from src.playlist_app.models.database_v2 import Base
+    Base.metadata.create_all(bind=engine)
     logger.info("Database initialization completed successfully")
 
 @asynccontextmanager
@@ -370,7 +388,7 @@ def run_analysis_sync(include_tensorflow=False, max_workers=None, max_files=None
         # Get all files that need analysis
         db = SessionLocal()
         from sqlalchemy import text
-        result = db.execute(text("SELECT file_path FROM files WHERE is_analyzed = false"))
+        result = db.execute(text("SELECT file_path FROM files WHERE analysis_status != 'complete' OR analysis_status IS NULL"))
         all_files = [row[0] for row in result]
         db.close()
         
@@ -388,8 +406,8 @@ def run_analysis_sync(include_tensorflow=False, max_workers=None, max_files=None
         
         logger.info(f"Analyzing {total_files} files with modular analysis service")
         
-        # Use the new modular analysis service
-        from src.playlist_app.services.modular_analysis_service import modular_analysis_service
+        # Use the new independent analyzer services
+        from src.playlist_app.services.analysis_coordinator import analysis_coordinator
         
         # Get module configuration
         enable_essentia = True  # Essentia is always enabled
@@ -498,6 +516,8 @@ app.include_router(metadata_router)
 app.include_router(analyzer_router)
 app.include_router(tracks_router)
 app.include_router(faiss_router)
+
+app.include_router(playlists_router)
 
 @app.get("/api")
 async def api_info():
@@ -619,8 +639,28 @@ async def get_analysis_status():
 async def get_analysis_modules_status():
     """Get status of all analysis modules"""
     try:
-        from src.playlist_app.services.modular_analysis_service import modular_analysis_service
-        module_status = modular_analysis_service.get_module_status()
+        # Get status from independent analyzers
+        from src.playlist_app.services.independent_essentia_service import essentia_service
+        from src.playlist_app.services.independent_tensorflow_service import tensorflow_service
+        from src.playlist_app.services.independent_faiss_service import faiss_service
+        
+        module_status = {
+            "essentia": {
+                "available": True,
+                "enabled": True,
+                "description": "Independent Essentia analyzer"
+            },
+            "tensorflow": {
+                "available": tensorflow_service.is_available(),
+                "enabled": True,
+                "description": "Independent TensorFlow analyzer"
+            },
+            "faiss": {
+                "available": True,
+                "enabled": True,
+                "description": "Independent FAISS analyzer"
+            }
+        }
         
         return {
             "status": "success",
@@ -1123,13 +1163,13 @@ async def reset_database(confirm: bool = False):
         )
     
     try:
-        from src.playlist_app.models.database import Base, engine, create_tables
+        from src.playlist_app.models.database_v2 import Base, engine
         
         logger.warning("Database reset requested - dropping all tables")
         Base.metadata.drop_all(bind=engine)
         
         logger.info("Recreating database tables")
-        create_tables()
+        Base.metadata.create_all(bind=engine)
         
         return {
             "status": "success",

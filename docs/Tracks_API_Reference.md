@@ -21,7 +21,7 @@ All endpoints support three response formats:
   "id": 846,
   "file_path": "/music/Alex Warren - Carry You Home.mp3",
   "file_name": "Alex Warren - Carry You Home.mp3",
-  "is_analyzed": false
+  "analysis_status": "pending"
 }
 ```
 
@@ -34,7 +34,7 @@ All endpoints support three response formats:
   "file_size": 6744856,
   "file_extension": ".mp3",
   "discovered_at": "2025-08-11T12:03:58.681419",
-  "is_analyzed": false,
+  "analysis_status": "pending",
   "is_active": true,
   "title": "Carry You Home",
   "artist": "Alex Warren",
@@ -69,7 +69,7 @@ All endpoints support three response formats:
   "file_extension": ".mp3",
   "discovered_at": "2025-08-11T12:03:58.681419",
   "last_modified": "2025-08-11T12:03:58.720960",
-  "is_analyzed": false,
+  "analysis_status": "pending",
   "is_active": true,
   "metadata": {
     "title": "Carry You Home",
@@ -317,7 +317,7 @@ curl "http://localhost:8000/api/tracks/stats/overview"
 - `file_extension` - File extension
 - `discovered_at` - When the file was discovered
 - `last_modified` - Last modification time (detailed format only)
-- `is_analyzed` - Whether the track has been analyzed
+- `analysis_status` - Analysis status: "pending", "essentia_complete", "tensorflow_complete", "complete", "failed"
 - `is_active` - Whether the track is active
 
 ### Metadata (Summary & Detailed)

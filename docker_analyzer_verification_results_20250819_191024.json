@@ -1,0 +1,50 @@
+{
+  "docker_environment": {
+    "success": false,
+    "docker_available": true,
+    "container_running": false,
+    "container_health": {},
+    "errors": [
+      "Container essentia-tensorflow-app not running",
+      "Failed to get container logs: Command '['docker', 'logs', '--tail', '50', 'essentia-tensorflow-app']' returned non-zero exit status 1."
+    ]
+  },
+  "database_connection": {
+    "success": false,
+    "connection_ok": false,
+    "tables_exist": {},
+    "sample_data": {},
+    "errors": [
+      "Database connection test failed: Command '['docker', 'exec', 'essentia-tensorflow-app', 'python', '/app/temp_db_test.py']' returned non-zero exit status 1.",
+      "Stderr: Error response from daemon: No such container: essentia-tensorflow-app\n"
+    ]
+  },
+  "analyzer_availability": {
+    "success": false,
+    "essentia_available": false,
+    "tensorflow_available": false,
+    "faiss_available": false,
+    "analyzer_services": {},
+    "errors": [
+      "Analyzer availability test failed: Command '['docker', 'exec', 'essentia-tensorflow-app', 'python', '/app/temp_analyzer_test.py']' returned non-zero exit status 1."
+    ]
+  },
+  "individual_tests": {
+    "success": false,
+    "essentia_test": {},
+    "tensorflow_test": {},
+    "faiss_test": {},
+    "errors": [
+      "Individual analyzer test failed: Command '['docker', 'exec', 'essentia-tensorflow-app', 'python', '/app/temp_individual_test.py']' returned non-zero exit status 1."
+    ]
+  },
+  "integration_tests": {
+    "success": false,
+    "status_records": {},
+    "cross_analyzer_dependencies": {},
+    "errors": [
+      "Integration test failed: Command '['docker', 'exec', 'essentia-tensorflow-app', 'python', '/app/temp_integration_test.py']' returned non-zero exit status 1."
+    ]
+  },
+  "end_to_end_tests": {}
+}

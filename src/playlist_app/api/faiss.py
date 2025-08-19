@@ -57,6 +57,7 @@ async def get_faiss_status(db: Session = Depends(get_db)) -> Dict[str, Any]:
 @router.post("/build-index")
 async def build_index(
     include_tensorflow: bool = Query(True, description="Include MusiCNN features"),
+    include_faiss: bool = Query(True, description="Include FAISS vector indexing"),
     force_rebuild: bool = Query(False, description="Force rebuild existing index"),
     db: Session = Depends(get_db)
 ) -> Dict[str, Any]:
@@ -75,6 +76,7 @@ async def build_index(
         result = faiss_service.build_index_from_database(
             db=db,
             include_tensorflow=include_tensorflow,
+            include_faiss=include_faiss,
             force_rebuild=force_rebuild
         )
         

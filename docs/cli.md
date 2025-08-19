@@ -121,7 +121,7 @@ song3.flac             .flac    8.7MB     Pending
       "file_size": 5242880,
       "file_extension": ".mp3",
       "discovered_at": "2024-01-01T12:00:00",
-      "is_analyzed": false
+              "analysis_status": "pending"
     }
   ],
   "count": 1,

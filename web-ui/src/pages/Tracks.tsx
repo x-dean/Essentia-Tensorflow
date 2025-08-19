@@ -27,9 +27,9 @@ const Tracks: React.FC = () => {
       
       // Apply status filter
       if (statusFilter === 'analyzed') {
-        filteredTracks = filteredTracks.filter((track: any) => track && track.is_analyzed);
+        filteredTracks = filteredTracks.filter((track: any) => track && track.analysis_status === "complete");
       } else if (statusFilter === 'unanalyzed') {
-        filteredTracks = filteredTracks.filter((track: any) => track && !track.is_analyzed);
+        filteredTracks = filteredTracks.filter((track: any) => track && track.analysis_status !== "complete");
       }
       
       // Apply search filter
@@ -79,8 +79,8 @@ const Tracks: React.FC = () => {
   // Calculate stats
   const stats = statsData && statsData.tracks ? {
     total_files: statsData.total_count,
-    analyzed_files: statsData.tracks.filter((t: any) => t.is_analyzed).length,
-    unanalyzed_files: statsData.tracks.filter((t: any) => !t.is_analyzed).length
+    analyzed_files: statsData.tracks.filter((t: any) => t.analysis_status === "complete").length,
+    unanalyzed_files: statsData.tracks.filter((t: any) => t.analysis_status !== "complete").length
   } : null;
 
   // Sort tracks

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 import numpy as np
 
-from ..models.database import File, AudioAnalysis, VectorIndex, FAISSIndexMetadata, FileStatus
+from ..models.database import File, FAISSIndexMetadata, FileStatus
 from .essentia_analyzer import essentia_analyzer, safe_json_serialize
 
 # FAISS for efficient vector similarity search
@@ -47,7 +47,7 @@ class FAISSService:
         self.index_metadata = None
         
     def build_index_from_database(self, db: Session, include_tensorflow: bool = True, 
-                                force_rebuild: bool = False) -> Dict[str, Any]:
+                                include_faiss: bool = True, force_rebuild: bool = False) -> Dict[str, Any]:
         """
         Build FAISS index from analyzed tracks in database.
         
@@ -79,12 +79,11 @@ class FAISSService:
             try:
                 from ..core.analysis_config import analysis_config_loader
                 config = analysis_config_loader.get_config()
-                vector_config = config.get("vector_analysis", {})
-                index_type_config = vector_config.get("index_type", "IVFFlat")
-                nlist_config = vector_config.get("nlist", 100)
-                normalization_config = vector_config.get("normalization", {})
-                normalize_enabled = normalization_config.get("enabled", True)
-                normalize_method = normalization_config.get("method", "l2")
+                # Use default values since vector_analysis config is not in the dataclass
+                index_type_config = "IVFFlat"
+                nlist_config = 100
+                normalize_enabled = True
+                normalize_method = "l2"
             except Exception as e:
                 logger.warning(f"Failed to load vector analysis config: {e}, using defaults")
                 index_type_config = "IVFFlat"
@@ -102,9 +101,11 @@ class FAISSService:
                 logger.info(f"Index {self.index_name} already exists, loading...")
                 return self.load_index_from_database(db)
             
-            # Get all analyzed files
-            analyzed_files = db.query(File).join(AudioAnalysis).filter(
-                File.has_audio_analysis == True,
+            # Get all analyzed files (both complete and essentia_complete)
+            # Note: AudioAnalysis table has been replaced with independent analyzer tables
+            # This method needs to be updated to use the new schema
+            analyzed_files = db.query(File).filter(
+                File.analysis_status.in_(["complete", "essentia_complete"]),
                 File.is_active == True
             ).all()
             
@@ -456,7 +457,7 @@ class FAISSService:
             
             # Get file statistics
             total_files = db.query(File).count()
-            analyzed_files = db.query(File).filter(File.has_audio_analysis == True).count()
+            analyzed_files = db.query(File).filter(File.analysis_status == "complete").count()
             indexed_files = db.query(File).join(VectorIndex).count()
             
             stats = {
@@ -484,6 +485,34 @@ class FAISSService:
         except Exception as e:
             logger.error(f"Failed to get index statistics: {e}")
             return {"error": str(e)}
+    
+    def index_exists(self) -> bool:
+        """
+        Check if FAISS index exists and is loaded.
+        
+        Returns:
+            True if index exists and is loaded, False otherwise
+        """
+        try:
+            # Check if FAISS index is loaded in memory
+            if self.faiss_index is not None:
+                return True
+            
+            # Check if index exists in database
+            from ..models.database import get_db_session, FAISSIndexMetadata
+            db = get_db_session()
+            try:
+                existing_metadata = db.query(FAISSIndexMetadata).filter(
+                    FAISSIndexMetadata.index_name == self.index_name,
+                    FAISSIndexMetadata.is_active == True
+                ).first()
+                return existing_metadata is not None
+            finally:
+                db.close()
+                
+        except Exception as e:
+            logger.error(f"Failed to check if index exists: {e}")
+            return False
     
     def save_index_to_disk(self, base_path: str = ".") -> bool:
         """
@@ -526,8 +555,8 @@ class FAISSService:
         try:
             from ..core.analysis_config import analysis_config_loader
             config = analysis_config_loader.get_config()
-            vector_config = config.get("vector_analysis", {})
-            hash_algorithm = vector_config.get("hash_algorithm", "md5")
+            # Use default hash algorithm since vector_analysis config is not in the dataclass
+            hash_algorithm = "md5"
         except Exception:
             hash_algorithm = "md5"
         

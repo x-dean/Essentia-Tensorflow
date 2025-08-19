@@ -61,7 +61,7 @@ def demo_faiss_basic_usage():
         print("\n3. Finding similar tracks...")
         
         # Get a file from database to use as query
-        files = db.query(File).filter(File.is_analyzed == True).limit(1).all()
+        files = db.query(File).filter(File.analysis_status == "complete").limit(1).all()
         
         if files:
             query_file = files[0].file_path
@@ -85,7 +85,7 @@ def demo_faiss_basic_usage():
         
         # Find an unindexed file
         unindexed_files = db.query(File).filter(
-            File.is_analyzed == True,
+            File.analysis_status == "complete",
             ~File.id.in_(
                 db.query(VectorIndex.file_id).subquery()
             )
@@ -145,7 +145,7 @@ def demo_faiss_advanced_features():
         print("\n2. Searching by pre-computed vector...")
         
         # Get a file and extract its vector
-        files = db.query(File).filter(File.is_analyzed == True).limit(1).all()
+        files = db.query(File).filter(File.analysis_status == "complete").limit(1).all()
         
         if files:
             query_file = files[0].file_path
@@ -247,7 +247,7 @@ def demo_faiss_performance():
         faiss_service.load_index_from_database(db)
         
         # Get multiple query files
-        files = db.query(File).filter(File.is_analyzed == True).limit(5).all()
+        files = db.query(File).filter(File.analysis_status == "complete").limit(5).all()
         
         if not files:
             print("No analyzed files found")

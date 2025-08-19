@@ -12,9 +12,15 @@ class FileStatus(enum.Enum):
     """File processing status enumeration"""
     DISCOVERED = "discovered"
     HAS_METADATA = "has_metadata"
-    ANALYZED = "analyzed"
-    FAISS_ANALYZED = "faiss_analyzed"
     FAILED = "failed"
+
+class AnalyzerStatus(enum.Enum):
+    """Analyzer status enumeration"""
+    PENDING = "pending"
+    ANALYZING = "analyzing"
+    ANALYZED = "analyzed"
+    FAILED = "failed"
+    RETRY = "retry"
 
 class File(Base):
     """Model for discovered audio files"""
@@ -29,15 +35,15 @@ class File(Base):
     discovered_at = Column(DateTime, default=datetime.utcnow)
     last_modified = Column(DateTime, default=datetime.utcnow)
     status = Column(Enum(FileStatus), default=FileStatus.DISCOVERED, index=True)
-    is_analyzed = Column(Boolean, default=False)
     has_metadata = Column(Boolean, default=False)
-    has_audio_analysis = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
     
     # Relationships
     audio_metadata = relationship("AudioMetadata", back_populates="file", uselist=False)
-    audio_analysis = relationship("AudioAnalysis", back_populates="file", uselist=False)
-    vector_index = relationship("VectorIndex", back_populates="file", uselist=False)
+    essentia_status = relationship("EssentiaAnalysisStatus", back_populates="file", uselist=False)
+    tensorflow_status = relationship("TensorFlowAnalysisStatus", back_populates="file", uselist=False)
+    faiss_status = relationship("FAISSAnalysisStatus", back_populates="file", uselist=False)
+    track_summary = relationship("TrackAnalysisSummary", back_populates="file", uselist=False)
     
     def __repr__(self):
         return f"<File(id={self.id}, name='{self.file_name}', path='{self.file_path}')>"
@@ -115,12 +121,76 @@ class AudioMetadata(Base):
     def __repr__(self):
         return f"<AudioMetadata(file_id={self.file_id}, title='{self.title}', artist='{self.artist}')>"
 
-class AudioAnalysis(Base):
-    """Audio analysis results from Essentia"""
-    __tablename__ = "audio_analysis"
+# === INDEPENDENT ANALYZER STATUS TABLES ===
+
+class EssentiaAnalysisStatus(Base):
+    """Essentia analyzer status tracking"""
+    __tablename__ = "essentia_analysis_status"
     
     id = Column(Integer, primary_key=True, index=True)
     file_id = Column(Integer, ForeignKey("files.id"), nullable=False, index=True)
+    status = Column(Enum(AnalyzerStatus), default=AnalyzerStatus.PENDING, index=True)
+    started_at = Column(DateTime)
+    completed_at = Column(DateTime)
+    error_message = Column(Text)
+    retry_count = Column(Integer, default=0)
+    last_attempt = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationship
+    file = relationship("File", back_populates="essentia_status")
+    results = relationship("EssentiaAnalysisResults", back_populates="status", uselist=False)
+    
+    def __repr__(self):
+        return f"<EssentiaAnalysisStatus(file_id={self.file_id}, status='{self.status}')>"
+
+class TensorFlowAnalysisStatus(Base):
+    """TensorFlow analyzer status tracking"""
+    __tablename__ = "tensorflow_analysis_status"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    file_id = Column(Integer, ForeignKey("files.id"), nullable=False, index=True)
+    status = Column(Enum(AnalyzerStatus), default=AnalyzerStatus.PENDING, index=True)
+    started_at = Column(DateTime)
+    completed_at = Column(DateTime)
+    error_message = Column(Text)
+    retry_count = Column(Integer, default=0)
+    last_attempt = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationship
+    file = relationship("File", back_populates="tensorflow_status")
+    results = relationship("TensorFlowAnalysisResults", back_populates="status", uselist=False)
+    
+    def __repr__(self):
+        return f"<TensorFlowAnalysisStatus(file_id={self.file_id}, status='{self.status}')>"
+
+class FAISSAnalysisStatus(Base):
+    """FAISS analyzer status tracking"""
+    __tablename__ = "faiss_analysis_status"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    file_id = Column(Integer, ForeignKey("files.id"), nullable=False, index=True)
+    status = Column(Enum(AnalyzerStatus), default=AnalyzerStatus.PENDING, index=True)
+    started_at = Column(DateTime)
+    completed_at = Column(DateTime)
+    error_message = Column(Text)
+    retry_count = Column(Integer, default=0)
+    last_attempt = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationship
+    file = relationship("File", back_populates="faiss_status")
+    results = relationship("FAISSAnalysisResults", back_populates="status", uselist=False)
+    
+    def __repr__(self):
+        return f"<FAISSAnalysisStatus(file_id={self.file_id}, status='{self.status}')>"
+
+# === ANALYZER RESULTS TABLES ===
+
+class EssentiaAnalysisResults(Base):
+    """Essentia analysis results"""
+    __tablename__ = "essentia_analysis_results"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    status_id = Column(Integer, ForeignKey("essentia_analysis_status.id"), nullable=False, index=True)
     
     # Analysis metadata
     analysis_timestamp = Column(DateTime, default=datetime.utcnow)
@@ -135,21 +205,11 @@ class AudioAnalysis(Base):
     dynamic_complexity = Column(Float)
     zero_crossing_rate = Column(Float)
     
-    # Note: Advanced features are stored in complete_analysis JSON
-    # spectral_centroid, spectral_rolloff
-    # mfcc_features (40 coefficients)
-    # danceability_features
-    # rhythm_features (bpm, confidence)
-    # harmonic_features (key, scale, strength)
-    
     # Rhythm features (essential for playlist apps)
     tempo = Column(Float)
     tempo_confidence = Column(Float)
     tempo_methods_used = Column(Integer)  # Number of tempo estimation methods used
     danceability = Column(Float)  # Essential for dance/party playlists
-    
-    # Note: Advanced rhythm features are stored in complete_analysis JSON
-    # bpm, rhythm_confidence, beat_confidence
     
     # Harmonic features
     key = Column(String)
@@ -158,8 +218,30 @@ class AudioAnalysis(Base):
     dominant_chroma = Column(String)  # Dominant chroma (C, C#, D, etc.)
     dominant_chroma_strength = Column(Float)  # Strength of dominant chroma
     
-    # Note: Advanced harmonic features are stored in complete_analysis JSON
-    # key, scale, key_strength (essential for harmonic mixing)
+    # Complete analysis results (for detailed access)
+    complete_analysis = Column(Text)  # JSON object with all analysis data
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationship
+    status = relationship("EssentiaAnalysisStatus", back_populates="results")
+    
+    def __repr__(self):
+        return f"<EssentiaAnalysisResults(status_id={self.status_id}, duration={self.duration}, tempo={self.tempo})>"
+
+class TensorFlowAnalysisResults(Base):
+    """TensorFlow analysis results"""
+    __tablename__ = "tensorflow_analysis_results"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    status_id = Column(Integer, ForeignKey("tensorflow_analysis_status.id"), nullable=False, index=True)
+    
+    # Analysis metadata
+    analysis_timestamp = Column(DateTime, default=datetime.utcnow)
+    analysis_duration = Column(Float)  # Time taken for analysis in seconds
+    model_used = Column(String)  # Which model was used (MusicNN, VGGish, etc.)
     
     # TensorFlow features (stored as JSON)
     tensorflow_features = Column(Text)  # JSON object with model outputs
@@ -170,27 +252,25 @@ class AudioAnalysis(Base):
     primary_mood = Column(String)       # Primary mood (energetic, calm, happy, etc.)
     mood_confidence = Column(Float)     # Confidence score for primary mood
     
-    # Complete analysis results (for detailed access)
-    complete_analysis = Column(Text)  # JSON object with all analysis data
-    
     # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationship
-    file = relationship("File", back_populates="audio_analysis")
+    status = relationship("TensorFlowAnalysisStatus", back_populates="results")
     
     def __repr__(self):
-        return f"<AudioAnalysis(file_id={self.file_id}, duration={self.duration}, tempo={self.tempo})>"
+        return f"<TensorFlowAnalysisResults(status_id={self.status_id}, model='{self.model_used}')>"
 
-class VectorIndex(Base):
-    """FAISS vector index metadata and track mappings"""
-    __tablename__ = "vector_index"
+class FAISSAnalysisResults(Base):
+    """FAISS analysis results"""
+    __tablename__ = "faiss_analysis_results"
     
     id = Column(Integer, primary_key=True, index=True)
-    file_id = Column(Integer, ForeignKey("files.id"), nullable=False, index=True)
+    status_id = Column(Integer, ForeignKey("faiss_analysis_status.id"), nullable=False, index=True)
     
-    # Vector information
+    # Analysis metadata
+    analysis_timestamp = Column(DateTime, default=datetime.utcnow)
     vector_dimension = Column(Integer, nullable=False)
     vector_data = Column(Text)  # JSON array of feature vector values
     vector_hash = Column(String, index=True)  # Hash of vector for change detection
@@ -209,10 +289,39 @@ class VectorIndex(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     # Relationship
-    file = relationship("File", back_populates="vector_index")
+    status = relationship("FAISSAnalysisStatus", back_populates="results")
     
     def __repr__(self):
-        return f"<VectorIndex(file_id={self.file_id}, dimension={self.vector_dimension}, index_type='{self.index_type}')>"
+        return f"<FAISSAnalysisResults(status_id={self.status_id}, dimension={self.vector_dimension}, index_type='{self.index_type}')>"
+
+# === CONSOLIDATED QUERY TABLE ===
+
+class TrackAnalysisSummary(Base):
+    """Consolidated view for easy querying of all analyzer statuses"""
+    __tablename__ = "track_analysis_summary"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    file_id = Column(Integer, ForeignKey("files.id"), nullable=False, index=True)
+    
+    # Individual analyzer statuses
+    essentia_status = Column(Enum(AnalyzerStatus), default=AnalyzerStatus.PENDING, index=True)
+    tensorflow_status = Column(Enum(AnalyzerStatus), default=AnalyzerStatus.PENDING, index=True)
+    faiss_status = Column(Enum(AnalyzerStatus), default=AnalyzerStatus.PENDING, index=True)
+    
+    # Completion timestamps
+    essentia_completed_at = Column(DateTime)
+    tensorflow_completed_at = Column(DateTime)
+    faiss_completed_at = Column(DateTime)
+    
+    # Overall status
+    overall_status = Column(String, index=True)  # "complete", "partial", "failed", "pending"
+    last_updated = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationship
+    file = relationship("File", back_populates="track_summary")
+    
+    def __repr__(self):
+        return f"<TrackAnalysisSummary(file_id={self.file_id}, overall_status='{self.overall_status}')>"
 
 class FAISSIndexMetadata(Base):
     """Global FAISS index metadata"""
@@ -252,7 +361,7 @@ class FAISSIndexMetadata(Base):
         return f"<FAISSIndexMetadata(name='{self.index_name}', type='{self.index_type}', vectors={self.total_vectors})>"
 
 # Database configuration
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://playlist_user:playlist_password@localhost:5432/playlist_db")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://playlist_user:playlist_password@playlist-postgres:5432/playlist_db")
 
 # Improved engine configuration for concurrent operations
 engine = create_engine(

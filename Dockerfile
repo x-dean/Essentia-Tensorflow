@@ -98,6 +98,7 @@ RUN pip install --no-cache-dir \
     joblib \
     jsonschema \
     # FAISS for vector similarity search
-    faiss-cpu>=1.7.4
+    faiss-cpu>=1.7.4 \
+
 
 WORKDIR /workspace

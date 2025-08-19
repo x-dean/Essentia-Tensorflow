@@ -1,0 +1,58 @@
+{
+  "cli_availability": {
+    "success": true,
+    "cli_exists": true,
+    "cli_executable": true,
+    "help_works": true,
+    "errors": []
+  },
+  "analyzer_status": {
+    "success": false,
+    "status_response": {},
+    "services_available": {},
+    "errors": [
+      "Analyzer status not operational"
+    ]
+  },
+  "essentia_test": {
+    "success": false,
+    "pending_files": {},
+    "analysis_result": {},
+    "errors": [
+      "Essentia analysis failed"
+    ]
+  },
+  "tensorflow_test": {
+    "success": false,
+    "pending_files": {},
+    "analysis_result": {},
+    "errors": [
+      "TensorFlow analysis failed"
+    ]
+  },
+  "faiss_test": {
+    "success": false,
+    "pending_files": {},
+    "analysis_result": {},
+    "errors": [
+      "FAISS analysis failed"
+    ]
+  },
+  "integration_test": {
+    "success": false,
+    "all_analyzers": {},
+    "statistics": {},
+    "errors": [
+      "Integration test failed: Command '['C:\\\\Users\\\\Dean\\\\AppData\\\\Local\\\\Microsoft\\\\WindowsApps\\\\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\\\\python.exe', 'scripts/master_cli.py', 'analyzer', 'complete', '--max-files', '3']' returned non-zero exit status 1.",
+      "Stderr: 2025-08-19 19:28:08,360 - INFO - Starting complete analysis with all analyzers...\n2025-08-19 19:28:08,380 - ERROR - API request failed: 500 Server Error: Internal Server Error for url: http://localhost:8000/api/analyzer/complete?max_files=3\n2025-08-19 19:28:08,380 - ERROR - Error details: {'detail': \"'AnalysisCoordinator' object has no attribute 'analyze_pending_files'\"}\n2025-08-19 19:28:08,380 - ERROR - Command failed: 500 Server Error: Internal Server Error for url: http://localhost:8000/api/analyzer/complete?max_files=3\n"
+    ]
+  },
+  "database_info": {
+    "success": false,
+    "file_count": {},
+    "analyzer_stats": {},
+    "errors": [
+      "Database info failed: Command '['C:\\\\Users\\\\Dean\\\\AppData\\\\Local\\\\Microsoft\\\\WindowsApps\\\\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\\\\python.exe', 'scripts/master_cli.py', 'tracks', 'list', '--limit', '1']' returned non-zero exit status 1."
+    ]
+  }
+}

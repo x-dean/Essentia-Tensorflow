@@ -6,10 +6,11 @@ export interface Track {
   file_extension: string;
   discovered_at: string;
   status?: string;
-  is_analyzed: boolean;
   has_metadata: boolean;
-  has_audio_analysis: boolean;
   is_active: boolean;
+  essentia_analyzed: boolean;
+  tensorflow_analyzed: boolean;
+  analysis_status: string;
   title?: string;
   artist?: string;
   album?: string;

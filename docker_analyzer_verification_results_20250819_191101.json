@@ -1,0 +1,50 @@
+{
+  "docker_environment": {
+    "success": true,
+    "docker_available": true,
+    "container_running": true,
+    "container_health": {
+      "status": "Up 53 minutes",
+      "logs_ok": true
+    },
+    "errors": []
+  },
+  "database_connection": {
+    "success": false,
+    "connection_ok": false,
+    "tables_exist": {},
+    "sample_data": {},
+    "errors": [
+      "Database connection test failed: Command '['docker', 'exec', 'playlist-app', 'python', '/app/temp_db_test.py']' returned non-zero exit status 2.",
+      "Stderr: python: can't open file '/app/temp_db_test.py': [Errno 2] No such file or directory\n"
+    ]
+  },
+  "analyzer_availability": {
+    "success": false,
+    "essentia_available": false,
+    "tensorflow_available": false,
+    "faiss_available": false,
+    "analyzer_services": {},
+    "errors": [
+      "Analyzer availability test failed: Command '['docker', 'exec', 'playlist-app', 'python', '/app/temp_analyzer_test.py']' returned non-zero exit status 2."
+    ]
+  },
+  "individual_tests": {
+    "success": false,
+    "essentia_test": {},
+    "tensorflow_test": {},
+    "faiss_test": {},
+    "errors": [
+      "Individual analyzer test failed: Command '['docker', 'exec', 'playlist-app', 'python', '/app/temp_individual_test.py']' returned non-zero exit status 2."
+    ]
+  },
+  "integration_tests": {
+    "success": false,
+    "status_records": {},
+    "cross_analyzer_dependencies": {},
+    "errors": [
+      "Integration test failed: Command '['docker', 'exec', 'playlist-app', 'python', '/app/temp_integration_test.py']' returned non-zero exit status 2."
+    ]
+  },
+  "end_to_end_tests": {}
+}
