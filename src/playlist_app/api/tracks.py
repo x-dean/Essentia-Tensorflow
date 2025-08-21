@@ -72,13 +72,17 @@ async def get_all_tracks(
         query = db.query(File)
         
         if analyzed_only:
-            query = query.join(TrackAnalysisSummary).filter(TrackAnalysisSummary.overall_status == "complete")
+            query = query.join(TrackAnalysisSummary).filter(TrackAnalysisSummary.analysis_status == "complete")
         
         if has_metadata:
             query = query.join(AudioMetadata)
         
         total_count = query.count()
-        tracks = query.order_by(File.discovered_at.desc()).offset(offset).limit(limit).all()
+        # If limit is 0, don't apply limit (get all tracks)
+        if limit == 0:
+            tracks = query.order_by(File.discovered_at.desc()).offset(offset).all()
+        else:
+            tracks = query.order_by(File.discovered_at.desc()).offset(offset).limit(limit).all()
         
         if format == "minimal":
             result = []
@@ -91,8 +95,8 @@ async def get_all_tracks(
                 }
                 
                 # Add analysis status from track summary if available
-                if track.track_summary:
-                    track_data["analysis_status"] = track.track_summary.overall_status
+                if track.analysis_summary:
+                    track_data["analysis_status"] = track.analysis_summary.analysis_status
                 else:
                     track_data["analysis_status"] = None
                 
@@ -113,44 +117,39 @@ async def get_all_tracks(
                 }
                 
                 # Add analysis status from track summary if available
-                if track.track_summary:
+                if track.analysis_summary:
                     track_data.update({
-                        "analysis_status": track.track_summary.overall_status,
-                        "essentia_status": track.track_summary.essentia_status.value if track.track_summary.essentia_status else None,
-                        "tensorflow_status": track.track_summary.tensorflow_status.value if track.track_summary.tensorflow_status else None,
-                        "faiss_status": track.track_summary.faiss_status.value if track.track_summary.faiss_status else None,
-                        "essentia_completed_at": track.track_summary.essentia_completed_at.isoformat() if track.track_summary.essentia_completed_at else None,
-                        "tensorflow_completed_at": track.track_summary.tensorflow_completed_at.isoformat() if track.track_summary.tensorflow_completed_at else None,
-                        "faiss_completed_at": track.track_summary.faiss_completed_at.isoformat() if track.track_summary.faiss_completed_at else None,
-                        "last_updated": track.track_summary.last_updated.isoformat() if track.track_summary.last_updated else None
+                        "analysis_status": track.analysis_summary.analysis_status,
+                        "analysis_date": track.analysis_summary.analysis_date.isoformat() if track.analysis_summary.analysis_date else None,
+                        "analysis_duration": track.analysis_summary.analysis_duration,
+                        "analysis_errors": track.analysis_summary.analysis_errors
                     })
                 else:
                     track_data.update({
                         "analysis_status": None,
-                        "essentia_status": None,
-                        "tensorflow_status": None,
-                        "faiss_status": None,
-                        "essentia_completed_at": None,
-                        "tensorflow_completed_at": None,
-                        "faiss_completed_at": None,
-                        "last_updated": None
+                        "analysis_date": None,
+                        "analysis_duration": None,
+                        "analysis_errors": None
                     })
                 
                 # Add metadata if available
-                if track.audio_metadata:
-                    metadata = track.audio_metadata
+                if track.metadata:
+                    metadata = track.metadata
                     track_data.update({
                         "title": metadata.title,
                         "artist": metadata.artist,
                         "album": metadata.album,
-                        "track_number": metadata.track_number,
+                        "album_artist": metadata.album_artist,
                         "year": metadata.year,
                         "genre": metadata.genre,
                         "duration": metadata.duration,
                         "bpm": metadata.bpm,
                         "key": metadata.key,
                         "bitrate": metadata.bitrate,
-                        "sample_rate": metadata.sample_rate
+                        "sample_rate": metadata.sample_rate,
+                        "channels": metadata.channels,
+                        "file_format": metadata.file_format,
+                        "mood": metadata.mood
                     })
                 
                 # Analysis data is available through the individual analyzer status tables
@@ -169,45 +168,28 @@ async def get_all_tracks(
                     "file_extension": track.file_extension,
                     "discovered_at": track.discovered_at.isoformat() if track.discovered_at else None,
                     "last_modified": track.last_modified.isoformat() if track.last_modified else None,
-                    "analysis_status": track.track_summary.overall_status if track.track_summary else None,
+                    "analysis_status": track.analysis_summary.analysis_status if track.analysis_summary else None,
                     "is_active": track.is_active
                 }
                 
                 # Add full metadata if available
-                if track.audio_metadata:
-                    metadata = track.audio_metadata
+                if track.metadata:
+                    metadata = track.metadata
                     track_data["metadata"] = {
                         "title": metadata.title,
                         "artist": metadata.artist,
                         "album": metadata.album,
-                        "track_number": metadata.track_number,
+                        "album_artist": metadata.album_artist,
                         "year": metadata.year,
                         "genre": metadata.genre,
-                        "album_artist": metadata.album_artist,
-                        "disc_number": metadata.disc_number,
-                        "composer": metadata.composer,
                         "duration": metadata.duration,
                         "bpm": metadata.bpm,
                         "key": metadata.key,
-                        "comment": metadata.comment,
                         "mood": metadata.mood,
-                        "rating": metadata.rating,
-                        "isrc": metadata.isrc,
-                        "encoder": metadata.encoder,
                         "bitrate": metadata.bitrate,
                         "sample_rate": metadata.sample_rate,
                         "channels": metadata.channels,
-                        "format": metadata.format,
-                        "file_size": metadata.file_size,
                         "file_format": metadata.file_format,
-                        "replaygain_track_gain": metadata.replaygain_track_gain,
-                        "replaygain_album_gain": metadata.replaygain_album_gain,
-                        "replaygain_track_peak": metadata.replaygain_track_peak,
-                        "replaygain_album_peak": metadata.replaygain_album_peak,
-                        "musicbrainz_track_id": metadata.musicbrainz_track_id,
-                        "musicbrainz_artist_id": metadata.musicbrainz_artist_id,
-                        "musicbrainz_album_id": metadata.musicbrainz_album_id,
-                        "musicbrainz_album_artist_id": metadata.musicbrainz_album_artist_id,
                         "created_at": metadata.created_at.isoformat() if metadata.created_at else None,
                         "updated_at": metadata.updated_at.isoformat() if metadata.updated_at else None
                     }

@@ -185,7 +185,7 @@ def verify_schema():
             file_size=1024,
             file_hash="test_hash_123",
             file_extension=".mp3",
-            status="discovered",
+            status=FileStatus.DISCOVERED,
             is_active=True
         )
         

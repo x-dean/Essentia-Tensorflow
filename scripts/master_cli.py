@@ -642,7 +642,7 @@ class MasterCLI:
                     return False
                 
                 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-                from playlist_app.models.database_v2 import Base, engine, get_db, SessionLocal
+                from playlist_app.models.database import Base, engine, get_db, SessionLocal
                 
                 if backup_first:
                     logger.info("Creating backup before reset...")

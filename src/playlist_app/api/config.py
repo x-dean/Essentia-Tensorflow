@@ -112,70 +112,31 @@ async def get_app_settings() -> Dict[str, Any]:
 async def get_analysis_config() -> Dict[str, Any]:
     """Get analysis configuration"""
     try:
-        from ..core.analysis_config import analysis_config_loader
-        config = analysis_config_loader.get_config()
+        config = config_loader.get_analysis_config()
+        source = "consolidated" if config_loader.consolidated_config_file.exists() else "file"
         
         return {
             "status": "success",
-            "config": {
-                "essentia": {
-                    "algorithms": {
-                        "enable_tensorflow": config.algorithms.enable_tensorflow,
-                        "enable_faiss": config.algorithms.enable_faiss,
-                        "enable_complex_rhythm": config.algorithms.enable_complex_rhythm,
-                        "enable_complex_harmonic": config.algorithms.enable_complex_harmonic,
-                        "enable_beat_tracking": config.algorithms.enable_beat_tracking,
-                        "enable_tempo_tap": config.algorithms.enable_tempo_tap,
-                        "enable_rhythm_extractor": config.algorithms.enable_rhythm_extractor,
-                        "enable_pitch_analysis": config.algorithms.enable_pitch_analysis,
-                        "enable_chord_detection": config.algorithms.enable_chord_detection
-                    },
-                    "audio_processing": {
-                        "sample_rate": config.audio_processing.sample_rate,
-                        "channels": config.audio_processing.channels,
-                        "frame_size": config.audio_processing.frame_size,
-                        "hop_size": config.audio_processing.hop_size,
-                        "window_type": config.audio_processing.window_type,
-                        "zero_padding": config.audio_processing.zero_padding
-                    },
-                    "spectral_analysis": {
-                        "min_frequency": config.spectral_analysis.min_frequency,
-                        "max_frequency": config.spectral_analysis.max_frequency,
-                        "n_mels": config.spectral_analysis.n_mels,
-                        "n_mfcc": config.spectral_analysis.n_mfcc,
-                        "n_spectral_peaks": config.spectral_analysis.n_spectral_peaks,
-                        "silence_threshold": config.spectral_analysis.silence_threshold
-                    },
-                    "track_analysis": {
-                        "min_track_length": config.track_analysis.min_track_length,
-                        "max_track_length": config.track_analysis.max_track_length,
-                        "chunk_duration": config.track_analysis.chunk_duration,
-                        "overlap_ratio": config.track_analysis.overlap_ratio
-                    }
-                },
-                "performance": {
-                    "parallel_processing": {
-                        "max_workers": config.parallel_processing.max_workers,
-                        "chunk_size": config.parallel_processing.chunk_size,
-                        "timeout_per_file": config.parallel_processing.timeout_per_file,
-                        "memory_limit_mb": config.parallel_processing.memory_limit_mb
-                    },
-                    "caching": {
-                        "enable_cache": config.caching.enable_cache,
-                        "cache_duration_hours": config.caching.cache_duration_hours,
-                        "max_cache_size_mb": config.caching.max_cache_size_mb
-                    },
-                    "optimization": {
-                        "use_ffmpeg_streaming": config.optimization.use_ffmpeg_streaming,
-                        "smart_segmentation": config.optimization.smart_segmentation,
-                        "skip_existing_analysis": config.optimization.skip_existing_analysis,
-                        "batch_size": config.optimization.batch_size
-                    }
-                }
-            }
+            "config": config,
+            "source": source
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error loading analysis config: {str(e)}")
+
+@router.get("/faiss")
+async def get_faiss_config() -> Dict[str, Any]:
+    """Get FAISS configuration"""
+    try:
+        config = config_loader.get_faiss_config()
+        source = "consolidated" if config_loader.consolidated_config_file.exists() else "file"
+        
+        return {
+            "status": "success",
+            "config": config,
+            "source": source
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading FAISS config: {str(e)}")
 
 @router.post("/analysis/update")
 async def update_analysis_config(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -296,7 +257,9 @@ async def get_all_configs() -> Dict[str, Any]:
             "database": config_loader.get_database_config(),
             "logging": config_loader.get_logging_config(),
             "app_settings": config_loader.get_app_settings(),
-            "analysis_config": config_loader.get_analysis_config()
+            "analysis_config": config_loader.get_analysis_config(),
+            "faiss": config_loader.get_faiss_config(),
+            "external_apis": config_loader.get_external_config()
         }
         
         source = "consolidated" if config_loader.consolidated_config_file.exists() else "individual"

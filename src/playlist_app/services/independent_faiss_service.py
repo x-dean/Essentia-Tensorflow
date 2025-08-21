@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 
 from .base_analyzer_service import BaseAnalyzerService
-from ..models.database_v2 import (
+from ..models.database import (
     File, FAISSAnalysisStatus, FAISSAnalysisResults,
     AnalyzerStatus, get_db, SessionLocal
 )
@@ -65,11 +65,21 @@ class IndependentFAISSService(BaseAnalyzerService):
             # Perform analysis
             self.logger.info(f"Starting FAISS analysis for {file_path}")
             
-            # Extract feature vector
-            feature_vector = self.essentia_analyzer.extract_feature_vector(
-                file_path, 
-                include_tensorflow=include_tensorflow
-            )
+            # Get existing Essentia analysis results
+            from ..models.database import EssentiaAnalysisResults
+            essentia_results = db.query(EssentiaAnalysisResults).filter(
+                EssentiaAnalysisResults.file_id == file_id
+            ).first()
+            
+            if not essentia_results:
+                # If no existing results, extract feature vector (this will trigger analysis)
+                feature_vector = self.essentia_analyzer.extract_feature_vector(
+                    file_path, 
+                    include_tensorflow=include_tensorflow
+                )
+            else:
+                # Use existing analysis results to build feature vector
+                feature_vector = self._build_feature_vector_from_db_results(essentia_results)
             
             # Calculate vector hash for change detection
             vector_hash = hashlib.md5(feature_vector.tobytes()).hexdigest()
@@ -142,8 +152,13 @@ class IndependentFAISSService(BaseAnalyzerService):
         # First, ensure all files have status records
         self._ensure_status_records_exist(db)
         
-        query = db.query(FAISSAnalysisStatus.file_id).filter(
-            FAISSAnalysisStatus.status == AnalyzerStatus.PENDING
+        # Use the same logic as the analysis coordinator - find files that either
+        # don't have analysis status or have non-analyzed status
+        query = db.query(File.id).filter(File.is_active == True)
+        query = query.outerjoin(FAISSAnalysisStatus, File.id == FAISSAnalysisStatus.file_id)
+        query = query.filter(
+            (FAISSAnalysisStatus.status.is_(None)) |
+            (FAISSAnalysisStatus.status != AnalyzerStatus.ANALYZED)
         )
         
         if limit:
@@ -534,6 +549,60 @@ class IndependentFAISSService(BaseAnalyzerService):
             "faiss_available": self.FAISS_AVAILABLE
         })
         return config
+    
+    def _build_feature_vector_from_db_results(self, essentia_results) -> np.ndarray:
+        """
+        Build feature vector from existing EssentiaAnalysisResults database record.
+        
+        Args:
+            essentia_results: EssentiaAnalysisResults database record
+            
+        Returns:
+            Numpy array of feature values for vector search
+        """
+        features = []
+        
+        # Essential basic features (4)
+        features.extend([
+            essentia_results.loudness or 0.0,
+            essentia_results.energy or 0.0,
+            essentia_results.dynamic_complexity or 0.0,
+            essentia_results.zero_crossing_rate or 0.0
+        ])
+        
+        # Essential spectral features (2)
+        features.extend([
+            essentia_results.spectral_centroid or 0.0,
+            essentia_results.spectral_rolloff or 0.0
+        ])
+        
+        # Essential rhythm features (3)
+        features.extend([
+            essentia_results.bpm or 0.0,
+            essentia_results.rhythm_confidence or 0.0,
+            0.0  # beat_confidence not stored in DB, use 0.0
+        ])
+        
+        # Essential harmonic features (1)
+        features.extend([
+            essentia_results.key_strength or 0.0
+        ])
+        
+        # Essential danceability features (1)
+        features.extend([
+            essentia_results.danceability or 0.0
+        ])
+        
+        # Essential MFCC features (first 20 coefficients)
+        mfcc_data = essentia_results.mfcc or []
+        if isinstance(mfcc_data, list) and len(mfcc_data) >= 20:
+            features.extend(mfcc_data[:20])  # First 20 MFCC coefficients
+            features.extend([0.0] * 20)      # MFCC std not stored, use 0.0
+        else:
+            features.extend([0.0] * 40)      # 20 means + 20 stds
+        
+        # Convert to numpy array
+        return np.array(features, dtype=np.float32)
 
 # Create global instance
 faiss_service = IndependentFAISSService()

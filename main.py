@@ -23,7 +23,7 @@ import uvicorn
 from sqlalchemy import text
 
 # Import our application components
-from src.playlist_app.models.database_v2 import get_db, SessionLocal, File
+from src.playlist_app.models.database import get_db, SessionLocal, File
 from src.playlist_app.services.discovery import DiscoveryService
 from src.playlist_app.api.discovery import router as discovery_router
 from src.playlist_app.api.config import router as config_router
@@ -228,7 +228,7 @@ def initialize_database():
     
     # Create schemas first
     logger.info("Creating database schemas...")
-    from src.playlist_app.models.database_v2 import engine
+    from src.playlist_app.models.database import engine
     
     # Create schemas
     with engine.connect() as conn:
@@ -242,7 +242,7 @@ def initialize_database():
     # Create SQLAlchemy tables
     logger.info("Creating database tables...")
     # Initialize database tables
-    from src.playlist_app.models.database_v2 import Base
+    from src.playlist_app.models.database import Base
     Base.metadata.create_all(bind=engine)
     logger.info("Database initialization completed successfully")
 
@@ -374,22 +374,32 @@ def run_discovery_sync():
 def run_analysis_sync(include_tensorflow=False, max_workers=None, max_files=None):
     """Synchronous wrapper for analysis (for background tasks)"""
     global analysis_progress
+    import time
+    
+    start_time = time.time()
     try:
         analysis_progress = {"status": "running", "progress": 0, "message": "Starting analysis...", "total_files": 0, "completed_files": 0}
         
         # Get configuration
-        from src.playlist_app.core.analysis_config import analysis_config_loader
-        config = analysis_config_loader.get_config()
+        analysis_config = config_loader.get_analysis_config()
         
         # Use config value if max_workers not provided
         if max_workers is None:
-            max_workers = config.parallel_processing.max_workers
+            max_workers = analysis_config.get("performance", {}).get("parallel_processing", {}).get("max_workers", 8)
         
         # Get all files that need analysis
         db = SessionLocal()
-        from sqlalchemy import text
-        result = db.execute(text("SELECT file_path FROM files WHERE analysis_status != 'complete' OR analysis_status IS NULL"))
-        all_files = [row[0] for row in result]
+        from src.playlist_app.models.database import File, TrackAnalysisSummary
+        from sqlalchemy.orm import joinedload
+        
+        # Query files that either don't have analysis summary or have incomplete analysis
+        files_query = db.query(File).outerjoin(TrackAnalysisSummary).filter(
+            (TrackAnalysisSummary.id.is_(None)) |  # No analysis summary exists
+            (TrackAnalysisSummary.analysis_status != 'complete')  # Analysis is not complete
+        )
+        
+        files = files_query.all()
+        all_files = [file.file_path for file in files]
         db.close()
         
         # Limit files if max_files is specified
@@ -409,55 +419,55 @@ def run_analysis_sync(include_tensorflow=False, max_workers=None, max_files=None
         # Use the new independent analyzer services
         from src.playlist_app.services.analysis_coordinator import analysis_coordinator
         
-        # Get module configuration
+        # Get module configuration - read fresh to ensure we have latest settings
+        analysis_config = config_loader.get_analysis_config()
         enable_essentia = True  # Essentia is always enabled
-        enable_tensorflow = include_tensorflow and config.algorithms.enable_tensorflow
-        enable_faiss = config.algorithms.enable_faiss
+        enable_tensorflow = include_tensorflow and analysis_config.get("essentia", {}).get("algorithms", {}).get("enable_tensorflow", True)
+        enable_faiss = analysis_config.get("essentia", {}).get("algorithms", {}).get("enable_faiss", True)
         
         logger.info(f"Modules enabled - Essentia: {enable_essentia}, TensorFlow: {enable_tensorflow}, FAISS: {enable_faiss}")
         
-        # Process files in batches to avoid memory issues
-        batch_size = config.optimization.batch_size
-        results = []
-        completed_count = 0
+        # Process files using analysis coordinator (no batching needed)
+        logger.info(f"Processing {len(all_files)} files with analysis coordinator")
         
-        for i in range(0, len(all_files), batch_size):
-            batch_files = all_files[i:i + batch_size]
-            batch_num = (i // batch_size) + 1
-            total_batches = (len(all_files) + batch_size - 1) // batch_size
+        # Update progress for analysis start
+        analysis_progress = {
+            "status": "running", 
+            "progress": 50, 
+            "message": f"Processing {len(all_files)} files with analysis coordinator...", 
+            "total_files": total_files, 
+            "completed_files": 0
+        }
+        
+        # Process files
+        try:
+            # Create a new database session for the analysis
+            analysis_db = SessionLocal()
+            analysis_results = analysis_coordinator.analyze_pending_files(
+                analysis_db,
+                max_files=max_files,
+                force_reanalyze=False,
+                enable_essentia=enable_essentia,
+                enable_tensorflow=enable_tensorflow,
+                enable_faiss=enable_faiss
+            )
+            analysis_db.close()
             
-            logger.info(f"Processing batch {batch_num}/{total_batches} with {len(batch_files)} files")
+            # Extract results from the analysis coordinator response
+            if analysis_results.get("success"):
+                summary = analysis_results.get("summary", {})
+                completed_count = summary.get("successful", 0)
+                failed_count = summary.get("failed", 0)
+                logger.info(f"Analysis completed: {completed_count} successful, {failed_count} failed")
+            else:
+                logger.error(f"Analysis failed: {analysis_results.get('message', 'Unknown error')}")
+                completed_count = 0
+                failed_count = len(all_files)
             
-            # Update progress for batch start
-            progress = int((i / len(all_files)) * 80) + 10  # 10-90% range
-            analysis_progress = {
-                "status": "running", 
-                "progress": progress, 
-                "message": f"Processing batch {batch_num}/{total_batches} ({len(batch_files)} files)...", 
-                "total_files": total_files, 
-                "completed_files": completed_count
-            }
-            
-            # Process batch
-            try:
-                batch_results = modular_analysis_service.analyze_files_batch(
-                    batch_files,
-                    enable_essentia=enable_essentia,
-                    enable_tensorflow=enable_tensorflow,
-                    enable_faiss=enable_faiss,
-                    force_reanalyze=False
-                )
-                
-                results.extend(batch_results["results"])
-                completed_count += batch_results["successful"]
-                
-                logger.info(f"Batch {batch_num} completed: {batch_results['successful']} successful, {batch_results['failed']} failed")
-                
-            except Exception as e:
-                logger.error(f"Batch {batch_num} failed: {e}")
-                # Mark all files in batch as failed
-                for file_path in batch_files:
-                    results.append({"file_path": file_path, "status": "failed", "error": str(e)})
+        except Exception as e:
+            logger.error(f"Analysis failed: {e}")
+            completed_count = 0
+            failed_count = len(all_files)
         
         # Update progress to complete
         analysis_progress = {
@@ -475,7 +485,7 @@ def run_analysis_sync(include_tensorflow=False, max_workers=None, max_files=None
             "status": "success",
             "total_files": total_files,
             "completed_files": completed_count,
-            "results": results,
+            "failed_files": failed_count,
             "duration": end_time - start_time,
             "modules_used": {
                 "essentia": enable_essentia,
@@ -639,10 +649,17 @@ async def get_analysis_status():
 async def get_analysis_modules_status():
     """Get status of all analysis modules"""
     try:
+        # Get current analysis config
+        analysis_config = config_loader.get_analysis_config()
+        
         # Get status from independent analyzers
         from src.playlist_app.services.independent_essentia_service import essentia_service
         from src.playlist_app.services.independent_tensorflow_service import tensorflow_service
         from src.playlist_app.services.independent_faiss_service import faiss_service
+        
+        # Read enabled status from config
+        tensorflow_enabled = analysis_config.get("essentia", {}).get("algorithms", {}).get("enable_tensorflow", True)
+        faiss_enabled = analysis_config.get("essentia", {}).get("algorithms", {}).get("enable_faiss", False)
         
         module_status = {
             "essentia": {
@@ -652,12 +669,12 @@ async def get_analysis_modules_status():
             },
             "tensorflow": {
                 "available": tensorflow_service.is_available(),
-                "enabled": True,
+                "enabled": tensorflow_enabled,
                 "description": "Independent TensorFlow analyzer"
             },
             "faiss": {
                 "available": True,
-                "enabled": True,
+                "enabled": faiss_enabled,
                 "description": "Independent FAISS analyzer"
             }
         }
@@ -677,17 +694,27 @@ async def get_analysis_modules_status():
 async def toggle_analysis_module(module_name: str, enabled: bool):
     """Toggle an analysis module on/off"""
     try:
-        from src.playlist_app.core.analysis_config import analysis_config_loader
-        from src.playlist_app.core.config_manager import config_manager
+        # Get current analysis config
+        analysis_config = config_loader.get_analysis_config()
         
         # Update configuration
         if module_name == "essentia":
             # Essentia is always enabled, but we can update its settings
             return {"status": "success", "message": "Essentia is always enabled"}
         elif module_name == "tensorflow":
-            config_manager.update_analysis_config({"modules": {"enable_tensorflow": enabled}})
+            if "essentia" not in analysis_config:
+                analysis_config["essentia"] = {}
+            if "algorithms" not in analysis_config["essentia"]:
+                analysis_config["essentia"]["algorithms"] = {}
+            analysis_config["essentia"]["algorithms"]["enable_tensorflow"] = enabled
+            config_loader.update_config("analysis_config", analysis_config)
         elif module_name == "faiss":
-            config_manager.update_analysis_config({"modules": {"enable_faiss": enabled}})
+            if "essentia" not in analysis_config:
+                analysis_config["essentia"] = {}
+            if "algorithms" not in analysis_config["essentia"]:
+                analysis_config["essentia"]["algorithms"] = {}
+            analysis_config["essentia"]["algorithms"]["enable_faiss"] = enabled
+            config_loader.update_config("analysis_config", analysis_config)
         else:
             return JSONResponse(
                 status_code=400,
@@ -801,41 +828,34 @@ async def update_config(request: dict):
             # Update analysis configuration
             logger.info("Starting analysis config update")
             try:
-                from src.playlist_app.core.analysis_config import analysis_config_loader
-                logger.info("Imported analysis_config_loader")
-                config = analysis_config_loader.get_config()
-                logger.info(f"Got config, type: {type(config)}")
+                # Get current analysis config
+                current_config = config_loader.get_analysis_config()
                 logger.info(f"Analysis config update - data keys: {list(data.keys())}")
+                
+                # Merge the new data with existing config
+                updated_config = current_config.copy()
+                
+                if "performance" in data:
+                    if "performance" not in updated_config:
+                        updated_config["performance"] = {}
+                    updated_config["performance"].update(data["performance"])
+                
+                if "essentia" in data:
+                    if "essentia" not in updated_config:
+                        updated_config["essentia"] = {}
+                    updated_config["essentia"].update(data["essentia"])
+                
+                if "tensorflow" in data:
+                    if "tensorflow" not in updated_config:
+                        updated_config["tensorflow"] = {}
+                    updated_config["tensorflow"].update(data["tensorflow"])
+                
+                # Save updated config
+                config_loader.update_config("analysis_config", updated_config)
+                
             except Exception as e:
                 logger.error(f"Error in analysis config update: {e}")
                 raise
-            
-            if "performance" in data:
-                if "parallel_processing" in data["performance"]:
-                    config.parallel_processing.max_workers = data["performance"]["parallel_processing"].get("max_workers", config.parallel_processing.max_workers)
-                    config.parallel_processing.chunk_size = data["performance"]["parallel_processing"].get("chunk_size", config.parallel_processing.chunk_size)
-                    config.parallel_processing.timeout_per_file = data["performance"]["parallel_processing"].get("timeout_per_file", config.parallel_processing.timeout_per_file)
-            
-            if "essentia" in data:
-                if "algorithms" in data["essentia"]:
-                    config.algorithms.enable_tensorflow = data["essentia"]["algorithms"].get("enable_tensorflow", config.algorithms.enable_tensorflow)
-                    config.algorithms.enable_complex_rhythm = data["essentia"]["algorithms"].get("enable_complex_rhythm", config.algorithms.enable_complex_rhythm)
-                    config.algorithms.enable_complex_harmonic = data["essentia"]["algorithms"].get("enable_complex_harmonic", config.algorithms.enable_complex_harmonic)
-                if "audio_processing" in data["essentia"]:
-                    for key, value in data["essentia"]["audio_processing"].items():
-                        if hasattr(config.audio_processing, key):
-                            setattr(config.audio_processing, key, value)
-                if "spectral_analysis" in data["essentia"]:
-                    for key, value in data["essentia"]["spectral_analysis"].items():
-                        if hasattr(config.spectral_analysis, key):
-                            setattr(config.spectral_analysis, key, value)
-                if "track_analysis" in data["essentia"]:
-                    for key, value in data["essentia"]["track_analysis"].items():
-                        if hasattr(config.track_analysis, key):
-                            setattr(config.track_analysis, key, value)
-            
-            # Save updated config to file
-            analysis_config_loader.save_config(config)
             
             # Save to persistent storage using config manager
             from src.playlist_app.core.config_manager import config_manager
@@ -912,23 +932,24 @@ async def update_config(request: dict):
             
         elif section == "performance":
             # Update performance configuration
-            from src.playlist_app.core.analysis_config import analysis_config_loader
-            config = analysis_config_loader.get_config()
+
+            
+            # Update performance configuration
+            current_config = config_loader.get_analysis_config()
+            updated_config = current_config.copy()
             
             if "performance" in data:
-                if "parallel_processing" in data["performance"]:
-                    config.parallel_processing.max_workers = data["performance"]["parallel_processing"].get("max_workers", config.parallel_processing.max_workers)
-                    config.parallel_processing.chunk_size = data["performance"]["parallel_processing"].get("chunk_size", config.parallel_processing.chunk_size)
-                    config.parallel_processing.timeout_per_file = data["performance"]["parallel_processing"].get("timeout_per_file", config.parallel_processing.timeout_per_file)
+                if "performance" not in updated_config:
+                    updated_config["performance"] = {}
+                updated_config["performance"].update(data["performance"])
             
             if "essentia" in data:
-                if "algorithms" in data["essentia"]:
-                    config.algorithms.enable_tensorflow = data["essentia"]["algorithms"].get("enable_tensorflow", config.algorithms.enable_tensorflow)
-                    config.algorithms.enable_complex_rhythm = data["essentia"]["algorithms"].get("enable_complex_rhythm", config.algorithms.enable_complex_rhythm)
-                    config.algorithms.enable_complex_harmonic = data["essentia"]["algorithms"].get("enable_complex_harmonic", config.algorithms.enable_complex_harmonic)
+                if "essentia" not in updated_config:
+                    updated_config["essentia"] = {}
+                updated_config["essentia"].update(data["essentia"])
             
-            # Save updated config to file
-            analysis_config_loader.save_config(config)
+            # Save updated config
+            config_loader.update_config("analysis_config", updated_config)
             logger.info("Performance configuration updated successfully")
             
             # Save to persistent storage
@@ -1163,7 +1184,7 @@ async def reset_database(confirm: bool = False):
         )
     
     try:
-        from src.playlist_app.models.database_v2 import Base, engine
+        from src.playlist_app.models.database import Base, engine
         
         logger.warning("Database reset requested - dropping all tables")
         Base.metadata.drop_all(bind=engine)

@@ -14,7 +14,7 @@ from mutagen.wave import WAVE
 from sqlalchemy.orm import Session
 from datetime import datetime
 
-from ..models.database_v2 import File, AudioMetadata, get_db, FileStatus
+from ..models.database import File, AudioMetadata, get_db, FileStatus
 from ..core.config_loader import config_loader
 from .genre_enrichment import genre_enrichment_manager
 from ..core.logging import get_logger

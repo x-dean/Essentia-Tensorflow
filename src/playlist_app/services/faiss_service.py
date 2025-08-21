@@ -499,8 +499,8 @@ class FAISSService:
                 return True
             
             # Check if index exists in database
-            from ..models.database import get_db_session, FAISSIndexMetadata
-            db = get_db_session()
+            from ..models.database import SessionLocal, FAISSIndexMetadata
+            db = SessionLocal()
             try:
                 existing_metadata = db.query(FAISSIndexMetadata).filter(
                     FAISSIndexMetadata.index_name == self.index_name,

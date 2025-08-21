@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 
 from .base_analyzer_service import BaseAnalyzerService
-from ..models.database_v2 import (
+from ..models.database import (
     File, EssentiaAnalysisStatus, EssentiaAnalysisResults,
     AnalyzerStatus, get_db, SessionLocal
 )
@@ -118,8 +118,13 @@ class IndependentEssentiaService(BaseAnalyzerService):
         # First, ensure all files have status records
         self._ensure_status_records_exist(db)
         
-        query = db.query(EssentiaAnalysisStatus.file_id).filter(
-            EssentiaAnalysisStatus.status == AnalyzerStatus.PENDING
+        # Use the same logic as the analysis coordinator - find files that either
+        # don't have analysis status or have non-analyzed status
+        query = db.query(File.id).filter(File.is_active == True)
+        query = query.outerjoin(EssentiaAnalysisStatus, File.id == EssentiaAnalysisStatus.file_id)
+        query = query.filter(
+            (EssentiaAnalysisStatus.status.is_(None)) |
+            (EssentiaAnalysisStatus.status != AnalyzerStatus.ANALYZED)
         )
         
         if limit:
@@ -367,7 +372,7 @@ class IndependentEssentiaService(BaseAnalyzerService):
                 essentia_results.analysis_version = "2.1"
                 
                 # Also store key summary features in TrackAnalysisSummary for compatibility
-                from ..models.database_v2 import TrackAnalysisSummary
+                from ..models.database import TrackAnalysisSummary
                 track_summary = db.query(TrackAnalysisSummary).filter(
                     TrackAnalysisSummary.file_id == file_id
                 ).first()

@@ -91,7 +91,21 @@ class DiscoveryConfig:
     
     @classmethod
     def get_search_directories(cls) -> List[str]:
-        """Get list of search directories"""
+        """Get list of search directories from config"""
+        try:
+            # Try to get from JSON config first
+            discovery_config = config_loader.get_discovery_config()
+            if discovery_config and "search_directories" in discovery_config:
+                return discovery_config["search_directories"]
+            
+            # Fallback to app settings
+            app_settings = config_loader.get_app_settings()
+            if app_settings and "discovery" in app_settings and "search_directories" in app_settings["discovery"]:
+                return app_settings["discovery"]["search_directories"]
+        except Exception:
+            pass
+        
+        # Fallback to environment variable
         return cls.SEARCH_DIRECTORIES
     
     @classmethod

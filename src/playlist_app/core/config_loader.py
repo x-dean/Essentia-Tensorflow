@@ -120,12 +120,17 @@ class ConfigLoader:
         return self.get_config("logging")
     
     def get_discovery_config(self) -> Dict[str, Any]:
-        """Get discovery configuration"""
-        return self.get_config("discovery")
+        """Get discovery configuration from app_settings"""
+        app_settings = self.get_app_settings()
+        return app_settings.get("discovery", {})
     
     def get_external_config(self) -> Dict[str, Any]:
         """Get external API configuration"""
-        return self.get_config("external")
+        return self.get_config("external_apis")
+    
+    def get_faiss_config(self) -> Dict[str, Any]:
+        """Get FAISS configuration"""
+        return self.get_config("faiss")
     
     def list_available_configs(self) -> List[str]:
         """List available configuration files"""

@@ -14,7 +14,7 @@ from sqlalchemy.orm import sessionmaker
 # Add the src directory to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from playlist_app.models.database_v2 import (
+from playlist_app.models.database import (
     Base, engine, SessionLocal,
     Playlist, PlaylistTrack, PlaylistTemplate, GeneratedPlaylist, 
     TrackSimilarityCache, PlaylistRecommendation, UIState, AppPreference

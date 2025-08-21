@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 import enum
 
-from ..models.database_v2 import AnalyzerStatus
+from ..models.database import AnalyzerStatus
 
 logger = logging.getLogger(__name__)
 

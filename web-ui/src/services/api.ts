@@ -6,10 +6,10 @@ const API_BASE_URL = '/api';
 
 // Default timeouts - will be updated from config
 let apiTimeouts = {
-  default: 60000,
-  analysis: 300000,
-  faiss: 300000,
-  discovery: 120000
+  default: 300000,      // 5 minutes
+  analysis: 1800000,    // 30 minutes
+  faiss: 1800000,       // 30 minutes
+  discovery: 600000     // 10 minutes
 };
 
 // Load timeouts from configuration
@@ -153,11 +153,10 @@ export const triggerAnalysis = async (includeTensorflow = false, maxWorkers?: nu
 export const forceReanalyze = async (includeTensorflow = false, maxWorkers?: number, maxFiles?: number): Promise<any> => {
   try {
     const params = new URLSearchParams();
-    if (includeTensorflow) params.append('include_tensorflow', 'true');
-    if (maxWorkers) params.append('max_workers', maxWorkers.toString());
+    params.append('force_reanalyze', 'true');
     if (maxFiles) params.append('max_files', maxFiles.toString());
     
-    const response = await api.post(`/analyzer/force-reanalyze?${params.toString()}`, null, {
+    const response = await api.post(`/analyzer/complete?${params.toString()}`, null, {
       timeout: apiTimeouts.analysis,
     });
     return response.data;
@@ -386,8 +385,8 @@ export const getDiscoveryStats = async (): Promise<DiscoveryStats> => {
 // Analyzer
 export const analyzeBatches = async (includeTensorflow: boolean = false): Promise<any> => {
   try {
-    const response = await api.post('/analyzer/analyze-batches', null, {
-      params: { include_tensorflow: includeTensorflow },
+    const response = await api.post('/analyzer/complete', null, {
+      params: { force_reanalyze: false },
       timeout: apiTimeouts.analysis,
     });
     return response.data;

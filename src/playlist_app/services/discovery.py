@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import List, Dict, Set, Tuple
 from datetime import datetime
 from sqlalchemy.orm import Session
-from ..models.database_v2 import File, DiscoveryCache, get_db, FileStatus, EssentiaAnalysisStatus, TensorFlowAnalysisStatus, FAISSAnalysisStatus, AnalyzerStatus
+from ..models.database import File, DiscoveryCache, get_db, FileStatus, EssentiaAnalysisStatus, TensorFlowAnalysisStatus, FAISSAnalysisStatus, AnalyzerStatus
 from ..core.config import DiscoveryConfig
 from ..core.logging import get_logger
 from .metadata import audio_metadata_analyzer

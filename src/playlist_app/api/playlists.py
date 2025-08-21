@@ -5,7 +5,7 @@ from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime
 
-from ..models.database_v2 import (
+from ..models.database import (
     get_db, Playlist, PlaylistTrack, 
     File, AudioMetadata
 )

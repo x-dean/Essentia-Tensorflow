@@ -1,16 +1,8 @@
 {
-  "timestamp": "20250813_093042",
-  "backup_type": "manual",
+  "timestamp": "20250819_200000",
+  "backup_type": "consolidated",
   "files_backed_up": [
-    "analysis.json",
-    "analysis_config.json",
-    "app_settings.json",
-    "config.json",
-    "database.json",
-    "discovery.json",
-    "external.json",
-    "general.json",
-    "logging.json",
-    "performance.json"
-  ]
+    "config.json"
+  ],
+  "description": "Consolidated configuration backup - all settings now in single config.json file"
 }

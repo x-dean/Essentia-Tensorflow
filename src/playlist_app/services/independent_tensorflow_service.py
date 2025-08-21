@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 
 from .base_analyzer_service import BaseAnalyzerService
-from ..models.database_v2 import (
+from ..models.database import (
     File, TensorFlowAnalysisStatus, TensorFlowAnalysisResults,
     AnalyzerStatus, get_db, SessionLocal
 )
@@ -118,8 +118,13 @@ class IndependentTensorFlowService(BaseAnalyzerService):
         # First, ensure all files have status records
         self._ensure_status_records_exist(db)
         
-        query = db.query(TensorFlowAnalysisStatus.file_id).filter(
-            TensorFlowAnalysisStatus.status == AnalyzerStatus.PENDING
+        # Use the same logic as the analysis coordinator - find files that either
+        # don't have analysis status or have non-analyzed status
+        query = db.query(File.id).filter(File.is_active == True)
+        query = query.outerjoin(TensorFlowAnalysisStatus, File.id == TensorFlowAnalysisStatus.file_id)
+        query = query.filter(
+            (TensorFlowAnalysisStatus.status.is_(None)) |
+            (TensorFlowAnalysisStatus.status != AnalyzerStatus.ANALYZED)
         )
         
         if limit:
@@ -373,7 +378,7 @@ class IndependentTensorFlowService(BaseAnalyzerService):
                 
                 # Also store primary mood in AudioMetadata for compatibility
                 if mood_analysis and mood_analysis.get("primary_mood"):
-                    from ..models.database_v2 import AudioMetadata
+                    from ..models.database import AudioMetadata
                     audio_metadata = db.query(AudioMetadata).filter(
                         AudioMetadata.file_id == file_id
                     ).first()
@@ -382,7 +387,7 @@ class IndependentTensorFlowService(BaseAnalyzerService):
                         audio_metadata.valence = mood_analysis.get("mood_confidence")
                 
                 # Update TrackAnalysisSummary with TensorFlow results
-                from ..models.database_v2 import TrackAnalysisSummary
+                from ..models.database import TrackAnalysisSummary
                 track_summary = db.query(TrackAnalysisSummary).filter(
                     TrackAnalysisSummary.file_id == file_id
                 ).first()
