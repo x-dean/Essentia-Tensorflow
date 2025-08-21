@@ -1,13 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from sqlalchemy import and_, or_
 from typing import List, Optional, Dict, Any
 import json
 import math
+import os
 from datetime import datetime
 
-from src.playlist_app.models.database import get_db, File, AudioMetadata, FileStatus, TrackAnalysisSummary
+from src.playlist_app.models.database import get_db, File, AudioMetadata, FileStatus, TrackAnalysisSummary, TensorFlowAnalysisResults
 from src.playlist_app.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -71,8 +73,12 @@ async def get_all_tracks(
     try:
         query = db.query(File)
         
+        # Always join with analysis summary to get analysis data
+        query = query.outerjoin(TrackAnalysisSummary)
+        query = query.outerjoin(TensorFlowAnalysisResults)
+        
         if analyzed_only:
-            query = query.join(TrackAnalysisSummary).filter(TrackAnalysisSummary.analysis_status == "complete")
+            query = query.filter(TrackAnalysisSummary.analysis_status == "complete")
         
         if has_metadata:
             query = query.join(AudioMetadata)
@@ -122,14 +128,49 @@ async def get_all_tracks(
                         "analysis_status": track.analysis_summary.analysis_status,
                         "analysis_date": track.analysis_summary.analysis_date.isoformat() if track.analysis_summary.analysis_date else None,
                         "analysis_duration": track.analysis_summary.analysis_duration,
-                        "analysis_errors": track.analysis_summary.analysis_errors
+                        "analysis_errors": track.analysis_summary.analysis_errors,
+                        # Essentia analysis results
+                        "tempo": track.analysis_summary.bpm,
+                        "key_analysis": track.analysis_summary.key,
+                        "scale": track.analysis_summary.scale,
+                        "energy": track.analysis_summary.energy,
+                        "danceability": track.analysis_summary.danceability,
+                        "loudness": track.analysis_summary.loudness,
+                        "dynamic_complexity": track.analysis_summary.dynamic_complexity,
+                        "rhythm_confidence": track.analysis_summary.rhythm_confidence,
+                        "key_strength": track.analysis_summary.key_strength,
+                        # TensorFlow analysis results
+                        "valence": track.analysis_summary.tensorflow_valence,
+                        "acousticness": track.analysis_summary.tensorflow_acousticness,
+                        "instrumentalness": track.analysis_summary.tensorflow_instrumentalness,
+                        "speechiness": track.analysis_summary.tensorflow_speechiness,
+                        "liveness": track.analysis_summary.tensorflow_liveness,
+                        # Quality control
+                        "analysis_quality_score": track.analysis_summary.analysis_quality_score,
+                        "confidence_threshold": track.analysis_summary.confidence_threshold
                     })
                 else:
                     track_data.update({
                         "analysis_status": None,
                         "analysis_date": None,
                         "analysis_duration": None,
-                        "analysis_errors": None
+                        "analysis_errors": None,
+                        "tempo": None,
+                        "key_analysis": None,
+                        "scale": None,
+                        "energy": None,
+                        "danceability": None,
+                        "loudness": None,
+                        "dynamic_complexity": None,
+                        "rhythm_confidence": None,
+                        "key_strength": None,
+                        "valence": None,
+                        "acousticness": None,
+                        "instrumentalness": None,
+                        "speechiness": None,
+                        "liveness": None,
+                        "analysis_quality_score": None,
+                        "confidence_threshold": None
                     })
                 
                 # Add metadata if available
@@ -194,6 +235,51 @@ async def get_all_tracks(
                         "updated_at": metadata.updated_at.isoformat() if metadata.updated_at else None
                     }
                 
+                # Add analysis data if available
+                if track.analysis_summary:
+                    track_data["analysis"] = {
+                        "analysis_status": track.analysis_summary.analysis_status,
+                        "analysis_date": track.analysis_summary.analysis_date.isoformat() if track.analysis_summary.analysis_date else None,
+                        "analysis_duration": track.analysis_summary.analysis_duration,
+                        "analysis_errors": track.analysis_summary.analysis_errors,
+                        # Essentia analysis results
+                        "tempo": track.analysis_summary.bpm,
+                        "key": track.analysis_summary.key,
+                        "scale": track.analysis_summary.scale,
+                        "energy": track.analysis_summary.energy,
+                        "danceability": track.analysis_summary.danceability,
+                        "loudness": track.analysis_summary.loudness,
+                        "dynamic_complexity": track.analysis_summary.dynamic_complexity,
+                        "rhythm_confidence": track.analysis_summary.rhythm_confidence,
+                        "key_strength": track.analysis_summary.key_strength,
+                        # TensorFlow analysis results
+                        "valence": track.analysis_summary.tensorflow_valence,
+                        "acousticness": track.analysis_summary.tensorflow_acousticness,
+                        "instrumentalness": track.analysis_summary.tensorflow_instrumentalness,
+                        "speechiness": track.analysis_summary.tensorflow_speechiness,
+                        "liveness": track.analysis_summary.tensorflow_liveness,
+                        # Quality control
+                        "analysis_quality_score": track.analysis_summary.analysis_quality_score,
+                        "confidence_threshold": track.analysis_summary.confidence_threshold
+                    }
+                
+                # Add TensorFlow predictions if available
+                if hasattr(track, 'tensorflow_analysis_results') and track.tensorflow_analysis_results:
+                    tf_results = track.tensorflow_analysis_results
+                    if not track_data.get("analysis"):
+                        track_data["analysis"] = {}
+                    track_data["analysis"]["tensorflow_predictions"] = {
+                        "top_predictions": tf_results.top_predictions,
+                        "genre_scores": tf_results.genre_scores,
+                        "mood_scores": tf_results.mood_scores,
+                        "dominant_genres": tf_results.dominant_genres,
+                        "dominant_moods": tf_results.dominant_moods,
+                        "emotion_dimensions": tf_results.emotion_dimensions,
+                        "model_used": tf_results.model_used,
+                        "analysis_timestamp": tf_results.analysis_timestamp.isoformat() if tf_results.analysis_timestamp else None,
+                        "analysis_duration": tf_results.analysis_duration
+                    }
+                
                 # Analysis data is available through the individual analyzer status tables
                 # and results tables, which can be accessed via separate endpoints
                 
@@ -210,5 +296,35 @@ async def get_all_tracks(
     except Exception as e:
         logger.error(f"Error getting tracks: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/stream/{track_id}")
+async def stream_track(track_id: int, db: Session = Depends(get_db)):
+    """
+    Stream an audio track by ID.
+    
+    This endpoint returns the audio file for streaming playback in the browser.
+    """
+    try:
+        # Get the track from database
+        track = db.query(File).filter(File.id == track_id).first()
+        if not track:
+            raise HTTPException(status_code=404, detail="Track not found")
+        
+        # Check if file exists
+        if not os.path.exists(track.file_path):
+            raise HTTPException(status_code=404, detail="Audio file not found")
+        
+        # Return the file for streaming
+        return FileResponse(
+            path=track.file_path,
+            media_type="audio/mpeg",  # Default to MP3, could be made dynamic
+            filename=track.file_name
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error streaming track {track_id}: {e}")
+        raise HTTPException(status_code=500, detail="Error streaming track")
 
 # Add other endpoints as needed...

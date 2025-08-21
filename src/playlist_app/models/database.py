@@ -478,6 +478,7 @@ File.similarity_target = relationship("TrackSimilarityCache", foreign_keys="Trac
 File.recommendations = relationship("PlaylistRecommendation", back_populates="recommended_file")
 File.essentia_status = relationship("EssentiaAnalysisStatus", back_populates="file", uselist=False)
 File.tensorflow_status = relationship("TensorFlowAnalysisStatus", back_populates="file", uselist=False)
+File.tensorflow_analysis_results = relationship("TensorFlowAnalysisResults", back_populates="file", uselist=False)
 File.faiss_status = relationship("FAISSAnalysisStatus", back_populates="file", uselist=False)
 
 # AudioMetadata relationships
@@ -489,6 +490,7 @@ TrackAnalysisSummary.file = relationship("File", back_populates="analysis_summar
 # Analyzer status relationships
 EssentiaAnalysisStatus.file = relationship("File", back_populates="essentia_status")
 TensorFlowAnalysisStatus.file = relationship("File", back_populates="tensorflow_status")
+TensorFlowAnalysisResults.file = relationship("File", back_populates="tensorflow_analysis_results")
 FAISSAnalysisStatus.file = relationship("File", back_populates="faiss_status")
 
 # Playlist relationships
