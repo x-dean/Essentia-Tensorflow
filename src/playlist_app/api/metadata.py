@@ -35,7 +35,7 @@ async def enrich_genres(
                     (File.audio_metadata == None) |
                     (AudioMetadata.genre.is_(None)) |
                     (AudioMetadata.genre == "") |
-                    (AudioMetadata.genre.in_(["Unknown", "unknown", "Unknown Genre"]))
+                    (AudioMetadata.genre.in_(["Unknown", "unknown", "Unknown Genre", "Other", "other"]))
                 )
             
             files = query.all()

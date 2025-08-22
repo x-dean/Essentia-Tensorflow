@@ -235,7 +235,7 @@
   "external_apis": {
     "musicbrainz": {
       "enabled": true,
-      "rate_limit": 1.0,
+      "rate_limit": 200.0,
       "timeout": 10,
       "user_agent": "PlaylistApp/1.0 (dean@example.com)"
     },
@@ -243,14 +243,14 @@
       "enabled": true,
       "api_key": "2b07c1e8a2d308a749760ab8d579baa8",
       "base_url": "https://ws.audioscrobbler.com/2.0/",
-      "rate_limit": 0.5,
+      "rate_limit": 1.2,
       "timeout": 10
     },
     "discogs": {
       "enabled": true,
       "api_key": "fHtjqUtbbXdHMqMBqvblPvKpOCInINhDTUCHvgcS",
       "base_url": "https://api.discogs.com/",
-      "rate_limit": 1.0,
+      "rate_limit": 1.2,
       "timeout": 10,
       "user_agent": "PlaylistApp/1.0"
     }

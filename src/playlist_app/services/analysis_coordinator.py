@@ -10,6 +10,12 @@ from ..models.database import (
 from .independent_essentia_service import essentia_service
 from .independent_tensorflow_service import tensorflow_service
 from .independent_faiss_service import faiss_service
+from .essentia_analyzer import EssentiaAnalyzer
+from .tensorflow_analyzer import TensorFlowAnalyzer
+from .faiss_service import FAISSService
+from .genre_fusion import GenreFusionService
+from ..core.config_loader import config_loader
+from ..core.logging import get_logger
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +34,7 @@ class AnalysisCoordinator:
         self.essentia_service = essentia_service
         self.tensorflow_service = tensorflow_service
         self.faiss_service = faiss_service
+        self.genre_fusion = GenreFusionService()  # Initialize genre fusion service
     
     def update_track_summary(self, file_id: int, db: Session = None) -> bool:
         """
@@ -502,6 +509,97 @@ class AnalysisCoordinator:
                 },
                 "results": {}
             }
+
+    def fuse_genres_for_track(self, file_id: int, db: Session = None) -> Dict[str, Any]:
+        """
+        Fuse genre predictions from multiple sources for a specific track.
+        
+        Sources:
+        1. Metadata genre (from audio file tags)
+        2. TensorFlow/MusicNN prediction (from audio analysis)
+        3. External API enrichment (MusicBrainz, Last.fm, Discogs)
+        
+        Args:
+            file_id: Database ID of the file
+            db: Database session (optional)
+            
+        Returns:
+            Dictionary with fused genre result and detailed analysis
+        """
+        should_close_db = db is None
+        if db is None:
+            db = SessionLocal()
+        
+        try:
+            # Get file and metadata
+            file_record = db.query(File).filter(File.id == file_id).first()
+            if not file_record:
+                return {'error': 'File not found'}
+            
+            # Get metadata from audio_metadata table
+            from ..models.database import AudioMetadata
+            metadata_record = db.query(AudioMetadata).filter(AudioMetadata.file_id == file_id).first()
+            
+            metadata_genre = None
+            album = None
+            artist = None
+            title = None
+            
+            if metadata_record:
+                metadata_genre = metadata_record.genre
+                album = metadata_record.album
+                artist = metadata_record.artist
+                title = metadata_record.title
+            
+            # Get TensorFlow analysis results
+            tensorflow_genre = None
+            tensorflow_confidence = 0.0
+            tensorflow_predictions = None
+            
+            tf_status = self.tensorflow_service.get_status(file_id, db)
+            if tf_status == TensorFlowAnalysisStatus.COMPLETED:
+                tf_results = self.tensorflow_service.get_results(file_id, db)
+                if tf_results and 'genre_analysis' in tf_results:
+                    genre_analysis = tf_results['genre_analysis']
+                    if 'primary_genre' in genre_analysis:
+                        tensorflow_genre = genre_analysis['primary_genre']
+                        tensorflow_confidence = genre_analysis.get('genre_confidence', 0.0)
+                        tensorflow_predictions = tf_results.get('musicnn', {})
+            
+            # Get enrichment results (if any)
+            enrichment_genre = None
+            enrichment_confidence = 0.0
+            
+            # Note: Enrichment results are typically stored in the metadata record
+            # but we could also check for separate enrichment results if they exist
+            
+            # Fuse all genre sources
+            fusion_result = self.genre_fusion.fuse_genres(
+                metadata_genre=metadata_genre,
+                context_genre=None,  # Context validation happens in metadata extraction
+                tensorflow_genre=tensorflow_genre,
+                tensorflow_confidence=tensorflow_confidence,
+                tensorflow_predictions=tensorflow_predictions,
+                enrichment_genre=enrichment_genre,
+                enrichment_confidence=enrichment_confidence,
+                album=album,
+                artist=artist,
+                title=title
+            )
+            
+            # Log the fusion result
+            logger.info(f"Genre fusion for file {file_id}: {fusion_result['final_genre']} "
+                       f"(confidence: {fusion_result['final_confidence']:.2f}, "
+                       f"method: {fusion_result['fusion_method']})")
+            
+            return fusion_result
+            
+        except Exception as e:
+            logger.error(f"Failed to fuse genres for file {file_id}: {e}")
+            return {'error': str(e)}
+        finally:
+            if should_close_db:
+                db.close()
 
 # Create global instance
 analysis_coordinator = AnalysisCoordinator()

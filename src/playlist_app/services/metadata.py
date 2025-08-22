@@ -17,6 +17,7 @@ from datetime import datetime
 from ..models.database import File, AudioMetadata, get_db, FileStatus
 from ..core.config_loader import config_loader
 from .genre_enrichment import genre_enrichment_manager
+from .genre_normalizer import GenreNormalizer
 from ..core.logging import get_logger
 
 logger = logging.getLogger(__name__)
@@ -26,6 +27,7 @@ class AudioMetadataAnalyzer:
     
     def __init__(self):
         self.metadata_mapping = self._load_metadata_mapping()
+        self.genre_normalizer = GenreNormalizer()  # Initialize genre normalizer
         self.supported_formats = {
             '.mp3': self._extract_mp3_metadata,
             '.flac': self._extract_flac_metadata,
@@ -396,7 +398,7 @@ class AudioMetadataAnalyzer:
         return self._extract_ogg_metadata(file_path)
     
     def _normalize_metadata(self, raw_metadata: Dict[str, Any]) -> Dict[str, Any]:
-        """Normalize metadata using field mapping"""
+        """Normalize metadata using mapping and apply genre normalization"""
         normalized = {}
         
         for raw_key, value in raw_metadata.items():
@@ -414,6 +416,17 @@ class AudioMetadataAnalyzer:
         
         # Post-process and convert data types
         normalized = self._convert_data_types(normalized)
+        
+        # Normalize genre if present
+        if 'genre' in normalized and normalized['genre']:
+            original_genre = normalized['genre']
+            normalized_genre = self.genre_normalizer.normalize_genre(original_genre)
+            if normalized_genre != original_genre:
+                logger.info(f"Genre normalized: '{original_genre}' -> '{normalized_genre}'")
+            normalized['genre'] = normalized_genre
+        
+        # Validate and override obviously wrong genres based on album context
+        normalized = self._validate_genre_context(normalized)
         
         # Enrich genre information from MusicBrainz if needed
         normalized = self._enrich_genre_from_musicbrainz(normalized)
@@ -555,6 +568,316 @@ class AudioMetadataAnalyzer:
         
         return converted
     
+    def _validate_genre_context(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate and override obviously wrong genres using dynamic lookup"""
+        genre = metadata.get('genre', '').lower()
+        album = metadata.get('album', '').lower()
+        artist = metadata.get('artist', '').lower()
+        title = metadata.get('title', '').lower()
+        file_path = metadata.get('file_path', '')
+        
+        if not genre:
+            return metadata
+        
+        # Step 1: Check album context patterns (these are still useful)
+        album_override = self._check_album_context(genre, album)
+        if album_override:
+            metadata['genre'] = album_override['genre']
+            metadata['genre_source'] = album_override['source']
+            return metadata
+        
+        # Step 2: Dynamic artist genre lookup
+        artist_override = self._check_artist_genre(genre, artist, title)
+        if artist_override:
+            metadata['genre'] = artist_override['genre']
+            metadata['genre_source'] = artist_override['source']
+            metadata['genre_confidence'] = artist_override.get('confidence', 0.6)
+            return metadata
+        
+        # Step 3: Filename pattern analysis
+        filename_override = self._check_filename_patterns(genre, file_path)
+        if filename_override:
+            metadata['genre'] = filename_override['genre']
+            metadata['genre_source'] = filename_override['source']
+            metadata['genre_confidence'] = filename_override.get('confidence', 0.4)
+            return metadata
+        
+        return metadata
+    
+    def _check_album_context(self, current_genre: str, album: str) -> Optional[Dict[str, Any]]:
+        """Check album context patterns for genre hints"""
+        if not album:
+            return None
+        
+        # Album context patterns that indicate specific genres
+        album_genre_patterns = {
+            # Rap/Hip-Hop albums
+            'rap hits': 'hip hop',
+            'rap hits 2000': 'hip hop',
+            'rap hits 2024': 'hip hop',
+            'hip hop': 'hip hop',
+            'hip-hop': 'hip hop',
+            'rap': 'hip hop',
+            'r&b': 'r&b',
+            'soul': 'r&b',
+            
+            # House/Electronic albums
+            'deep & hot': 'house',
+            'deep and hot': 'house',
+            'afro house': 'house',
+            'house music': 'house',
+            'summer evening': 'house',  # Common house compilation pattern
+            'club sandwich': 'house',   # Club music reference
+            'electronic': 'electronic',
+            'techno': 'electronic',
+            'trance': 'electronic',
+            'dance': 'dance',
+            
+            # Reggaeton/Latin albums
+            'baila reggaeton': 'latin',
+            'reggaeton': 'latin',
+            'latin': 'latin',
+            'salsa': 'latin',
+            
+            # Rock albums
+            'rock hits': 'rock',
+            'rock music': 'rock',
+            'metal': 'metal',
+            'punk': 'rock',
+            
+            # Pop albums
+            'pop hits': 'pop',
+            'pop music': 'pop',
+            'top hits': 'pop',
+            'chart hits': 'pop',
+            
+            # Jazz albums
+            'jazz': 'jazz',
+            'smooth jazz': 'jazz',
+            'jazz fusion': 'jazz',
+            
+            # Classical albums
+            'classical': 'classical',
+            'symphony': 'classical',
+            'orchestra': 'classical',
+            
+            # Country albums
+            'country': 'country',
+            'country hits': 'country',
+            'bluegrass': 'country',
+            
+            # Folk albums
+            'folk': 'folk',
+            'traditional': 'folk',
+            'celtic': 'folk',
+            
+            # Blues albums
+            'blues': 'blues',
+            'delta blues': 'blues',
+            'chicago blues': 'blues',
+            
+            # Reggae albums
+            'reggae': 'reggae',
+            'roots reggae': 'reggae',
+            'dancehall': 'reggae',
+            
+            # World music albums
+            'world music': 'world',
+            'african': 'african',
+            'latin': 'latin',
+            'middle eastern': 'world',
+            'indian': 'world',
+            'chinese': 'world',
+            'japanese': 'world'
+        }
+        
+        # Check if album context suggests a specific genre
+        for pattern, expected_genre in album_genre_patterns.items():
+            if pattern in album:
+                # If the current genre is obviously wrong for this album context
+                if self._is_genre_mismatch(current_genre, expected_genre):
+                    logger.info(f"Genre context override: '{current_genre}' -> '{expected_genre}' (album: {album})")
+                    return {'genre': expected_genre, 'source': 'album_context'}
+        
+        return None
+    
+    def _check_artist_genre(self, current_genre: str, artist: str, title: str) -> Optional[Dict[str, Any]]:
+        """Dynamically lookup artist genre using external APIs"""
+        if not artist:
+            return None
+        
+        try:
+            # Use the existing genre enrichment manager for dynamic lookup
+            from .genre_enrichment import genre_enrichment_manager
+            
+            # First try artist-track combination
+            enrichment_result = genre_enrichment_manager.enrich_metadata({
+                'artist': artist,
+                'title': title
+            })
+            
+            if enrichment_result and enrichment_result.get('genre'):
+                expected_genre = enrichment_result['genre'].lower()
+                if self._is_genre_mismatch(current_genre, expected_genre):
+                    logger.info(f"Genre artist lookup override: '{current_genre}' -> '{expected_genre}' (artist: {artist})")
+                    return {
+                        'genre': expected_genre, 
+                        'source': 'artist_lookup',
+                        'confidence': enrichment_result.get('confidence', 0.6)
+                    }
+            
+            # If no track-specific result, try artist-only lookup
+            # Use MusicBrainz service directly for artist genre lookup
+            from .musicbrainz import MusicBrainzService
+            musicbrainz = MusicBrainzService()
+            artist_genre = musicbrainz.get_artist_genre_by_name(artist)
+            
+            if artist_genre:
+                expected_genre = artist_genre.lower()
+                if self._is_genre_mismatch(current_genre, expected_genre):
+                    logger.info(f"Genre artist-only override: '{current_genre}' -> '{expected_genre}' (artist: {artist})")
+                    return {
+                        'genre': expected_genre, 
+                        'source': 'artist_only_lookup',
+                        'confidence': 0.5
+                    }
+                    
+        except Exception as e:
+            logger.debug(f"Artist genre lookup failed for {artist}: {e}")
+        
+        return None
+    
+    def _check_filename_patterns(self, current_genre: str, file_path: str) -> Optional[Dict[str, Any]]:
+        """Extract genre hints from filename patterns"""
+        if not file_path:
+            return None
+        
+        filename = file_path.lower()
+        
+        # Filename genre patterns
+        filename_patterns = {
+            # House/Electronic patterns
+            'house': 'house',
+            'deep house': 'house',
+            'progressive house': 'house',
+            'tech house': 'house',
+            'acid house': 'house',
+            'electronic': 'electronic',
+            'techno': 'electronic',
+            'trance': 'electronic',
+            'dubstep': 'electronic',
+            'drum and bass': 'electronic',
+            'dnb': 'electronic',
+            'ambient': 'electronic',
+            
+            # Hip-hop patterns
+            'hip hop': 'hip hop',
+            'hiphop': 'hip hop',
+            'rap': 'hip hop',
+            'trap': 'hip hop',
+            'grime': 'hip hop',
+            
+            # Rock patterns
+            'rock': 'rock',
+            'metal': 'metal',
+            'punk': 'rock',
+            'grunge': 'rock',
+            'alternative': 'rock',
+            'indie': 'rock',
+            
+            # Pop patterns
+            'pop': 'pop',
+            'mainstream': 'pop',
+            
+            # Other patterns
+            'jazz': 'jazz',
+            'blues': 'blues',
+            'country': 'country',
+            'folk': 'folk',
+            'classical': 'classical',
+            'reggae': 'reggae',
+            'latin': 'latin',
+            'salsa': 'latin',
+            'reggaeton': 'latin',
+            'world': 'world',
+            'african': 'african'
+        }
+        
+        # Check filename for genre patterns
+        for pattern, expected_genre in filename_patterns.items():
+            if pattern in filename:
+                if self._is_genre_mismatch(current_genre, expected_genre):
+                    logger.info(f"Genre filename override: '{current_genre}' -> '{expected_genre}' (filename: {filename})")
+                    return {
+                        'genre': expected_genre, 
+                        'source': 'filename_pattern',
+                        'confidence': 0.4  # Lower confidence for filename patterns
+                    }
+        
+        return None
+    
+    def _is_genre_mismatch(self, current_genre: str, expected_genre: str) -> bool:
+        """Check if current genre is obviously wrong for expected genre"""
+        if not current_genre or not expected_genre:
+            return False
+        
+        # Define genre families
+        genre_families = {
+            'hip hop': ['hip hop', 'rap', 'r&b', 'soul', 'trap', 'grime'],
+            'house': ['house', 'deep house', 'progressive house', 'tech house', 'acid house'],
+            'electronic': ['electronic', 'techno', 'trance', 'dubstep', 'drum and bass', 'ambient'],
+            'rock': ['rock', 'alternative', 'indie', 'punk', 'grunge'],
+            'metal': ['metal', 'heavy metal', 'black metal', 'death metal', 'thrash metal'],
+            'pop': ['pop', 'mainstream', 'adult contemporary'],
+            'jazz': ['jazz', 'smooth jazz', 'jazz fusion'],
+            'classical': ['classical', 'orchestral', 'symphony'],
+            'country': ['country', 'bluegrass', 'americana'],
+            'folk': ['folk', 'traditional', 'celtic'],
+            'blues': ['blues', 'delta blues', 'chicago blues'],
+            'reggae': ['reggae', 'roots reggae', 'dancehall'],
+            'latin': ['latin', 'salsa', 'reggaeton', 'bachata'],
+            'world': ['world', 'african', 'middle eastern', 'indian'],
+            'dance': ['dance', 'disco', 'eurodance']
+        }
+        
+        # Check if current genre belongs to a different family than expected
+        current_family = None
+        expected_family = None
+        
+        for family, genres in genre_families.items():
+            if current_genre in genres:
+                current_family = family
+            if expected_genre in genres:
+                expected_family = family
+        
+        # If genres belong to different families, it's likely a mismatch
+        if current_family and expected_family and current_family != expected_family:
+            return True
+        
+        # Specific obvious mismatches
+        obvious_mismatches = [
+            ('deep house black metal techno', 'hip hop'),  # Your specific case
+            ('techno', 'hip hop'),
+            ('metal', 'hip hop'),
+            ('classical', 'hip hop'),
+            ('jazz', 'hip hop'),
+            ('jazz', 'house'),  # Jazz is wrong for house music
+            ('jazz', 'electronic'),  # Jazz is wrong for electronic music
+            ('country', 'hip hop'),
+            ('folk', 'hip hop'),
+            ('blues', 'hip hop'),
+            ('reggae', 'hip hop'),
+            ('latin', 'hip hop'),
+            ('world', 'hip hop'),
+            ('dance', 'hip hop'),
+        ]
+        
+        for wrong_genre, correct_genre in obvious_mismatches:
+            if wrong_genre in current_genre and expected_genre == correct_genre:
+                return True
+        
+        return False
+    
     def _enrich_genre_from_musicbrainz(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """Enrich genre information using multiple API services"""
         try:
@@ -566,7 +889,7 @@ class AudioMetadataAnalyzer:
             if not artist or not title:
                 return metadata
             
-            # Skip if we already have a good genre
+            # Skip if we already have a good genre (after normalization)
             if current_genre and current_genre not in ['other', 'unknown', 'none', '']:
                 return metadata
             
